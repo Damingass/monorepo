@@ -36,8 +36,37 @@
     }
   }
 
-  // hover时显示关闭按钮
-  &:hover &__close-btn {
+  // 模式切换按钮样式
+  &__mode-toggle {
+    position: absolute;
+    top: 8px;
+    right: 44px;
+    z-index: 20;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 50%;
+    color: white;
+    opacity: 0;
+    transition: all 0.3s ease;
+    
+    &:hover {
+      background: rgba(0, 0, 0, 0.6) !important;
+      color: white !important;
+      transform: scale(1.1);
+    }
+
+    .anticon {
+      font-size: 12px;
+    }
+  }
+
+  // hover时显示关闭按钮和模式切换按钮
+  &:hover &__close-btn,
+  &:hover &__mode-toggle {
     opacity: 1;
   }
 
@@ -52,9 +81,20 @@
     justify-content: center;
   }
 
+  // 多张图片预览容器
+  &__multi-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
   // 当支持aspect-ratio时，容器使用相对定位
   @supports (aspect-ratio: 1) {
-    &__container {
+    &__container,
+    &__multi-container {
       position: relative;
     }
   }
@@ -317,11 +357,37 @@
     }
   }
 
+  // 批量操作按钮样式
+  &__bottom-multi-actions {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  &__bottom-delete-selected {
+    background: rgba(255, 77, 79, 0.9);
+    border: none;
+    color: white;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+
+    &:hover {
+      background: rgba(255, 77, 79, 1) !important;
+      color: white !important;
+    }
+  }
+
   // hover时显示底部按钮
   &:hover &__bottom-delete-current,
   &:hover &__bottom-send,
   &:hover &__bottom-save,
-  &:hover &__bottom-indicator {
+  &:hover &__bottom-indicator,
+  &:hover &__bottom-multi-actions {
     opacity: 1;
   }
 } 

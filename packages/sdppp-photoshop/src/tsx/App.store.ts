@@ -19,9 +19,14 @@ export const MainStore = create<{
     }[]
     showingPreview: boolean
     previewError: string
+    previewMode: 'single' | 'multi'
+    selectedImages: Set<number>
     downloadAndAppendImage: (image: { url: string, source: string, docId?: number, boundary?: any }) => Promise<void>
     deletePreviewImages: (nativePaths: string[]) => Promise<void>
     setShowingPreview: (showing: boolean) => void
+    setPreviewMode: (mode: 'single' | 'multi') => void
+    toggleImageSelection: (index: number) => void
+    clearImageSelection: () => void
 }>()(persist((set) => ({
     provider: '',
     previewImageList: [
@@ -106,8 +111,21 @@ export const MainStore = create<{
     },
     showingPreview: false,
     previewError: '',
+    previewMode: 'single',
+    selectedImages: new Set<number>(),
     setPreviewError: (error: string) => set({ previewError: error }),
-    setShowingPreview: (showing: boolean) => set({ showingPreview: showing })
+    setShowingPreview: (showing: boolean) => set({ showingPreview: showing }),
+    setPreviewMode: (mode: 'single' | 'multi') => set({ previewMode: mode }),
+    toggleImageSelection: (index: number) => set((state) => {
+        const newSelected = new Set(state.selectedImages);
+        if (newSelected.has(index)) {
+            newSelected.delete(index);
+        } else {
+            newSelected.add(index);
+        }
+        return { selectedImages: newSelected };
+    }),
+    clearImageSelection: () => set({ selectedImages: new Set<number>() })
 }), {
     name: 'main-store',
     storage: createJSONStorage(() => ({
@@ -124,6 +142,7 @@ export const MainStore = create<{
     })),
     partialize: (state) => ({
         provider: state.provider,
+        previewMode: state.previewMode,
     }),
 }))
 

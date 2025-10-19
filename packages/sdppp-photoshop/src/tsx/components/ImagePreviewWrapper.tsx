@@ -1,4 +1,4 @@
-import { DeleteOutlined, LeftOutlined, MoreOutlined, RightOutlined, SaveOutlined, SendOutlined, ShrinkOutlined, StepForwardOutlined } from '@ant-design/icons';
+import { DeleteOutlined, LeftOutlined, MoreOutlined, RightOutlined, SaveOutlined, SendOutlined, ShrinkOutlined, StepForwardOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { sdpppSDK, useTranslation } from '@sdppp/common';
 import { SyncButton } from '@sdppp/ui-library';
 import { Button, Divider, Dropdown } from 'antd';
@@ -6,6 +6,7 @@ import React from 'react';
 import { isImage } from '../../utils/fileType';
 import { MainStore } from '../App.store';
 import ImagePreview from './ImagePreview';
+import MultiImagePreview from './MultiImagePreview';
 
 interface ImagePreviewWrapperProps {
   children?: React.ReactNode;
@@ -14,6 +15,11 @@ interface ImagePreviewWrapperProps {
 export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperProps) {
   const { t } = useTranslation();
   const images = MainStore(state => state.previewImageList);
+  const previewMode = MainStore(state => state.previewMode);
+  const selectedImages = MainStore(state => state.selectedImages);
+  const setPreviewMode = MainStore(state => state.setPreviewMode);
+  const toggleImageSelection = MainStore(state => state.toggleImageSelection);
+  const clearImageSelection = MainStore(state => state.clearImageSelection);
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const [sending, setSending] = React.useState(false);
   const [sendingAll, setSendingAll] = React.useState(false);
@@ -127,21 +133,90 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
   };
 
   const handleSaveAll = () => {
-    sdpppSDK.plugins.photoshop.requestAndDoSaveImage({
-      nativePaths: images.map(image => image.nativePath)
-    });
+    const nativePaths = images.map(image => image.nativePath).filter((path): path is string => !!path);
+    if (nativePaths.length > 0) {
+      sdpppSDK.plugins.photoshop.requestAndDoSaveImage({
+        nativePaths
+      });
+    }
   };
 
   const handleSaveCurrent = async () => {
-    await sdpppSDK.plugins.photoshop.requestAndDoSaveImage({
-      nativePaths: [currentItem.nativePath]
-    });
+    if (currentItem?.nativePath) {
+      await sdpppSDK.plugins.photoshop.requestAndDoSaveImage({
+        nativePaths: [currentItem.nativePath]
+      });
+    }
   };
 
   const handleJumpToLast = () => {
     if (images.length > 0) {
       setCurrentIndex(images.length - 1);
     }
+  };
+
+  // Multi-image preview handlers
+  const handleImageSelect = (index: number) => {
+    toggleImageSelection(index);
+  };
+
+  const handleImageClick = (index: number) => {
+    if (previewMode === 'multi') {
+      setCurrentIndex(index);
+      setPreviewMode('single');
+    }
+  };
+
+  const handleSendSelected = async (event?: React.MouseEvent) => {
+    if (selectedImages.size === 0) return;
+    
+    setSendingAll(true);
+    try {
+      const selectedImageItems = Array.from(selectedImages)
+        .map(index => images[index])
+        .filter(image => isImage(image.url));
+      
+      if (selectedImageItems.length === 0) {
+        return;
+      }
+
+      const type = event?.shiftKey ? 'newdoc' : 'smartobject';
+      const promises = selectedImageItems.map(image =>
+        sdpppSDK.plugins.photoshop.importImage({
+          nativePath: image.nativePath || image.url,
+          boundary: image.boundary ?? 'canvas',
+          type: type,
+          sourceWidth: (image as any)?.width,
+          sourceHeight: (image as any)?.height
+        })
+      );
+      await Promise.all(promises);
+    } finally {
+      setSendingAll(false);
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedImages.size === 0) return;
+    
+    const selectedIndices = Array.from(selectedImages).sort((a, b) => b - a);
+    const newImages = images.filter((_, index) => !selectedImages.has(index));
+    MainStore.setState({ previewImageList: newImages });
+    clearImageSelection();
+    
+    // Adjust current index if needed
+    if (currentIndex >= newImages.length && newImages.length > 0) {
+      setCurrentIndex(newImages.length - 1);
+    }
+  };
+
+  const handleSelectAll = () => {
+    const allIndices = new Set(images.map((_, index) => index));
+    MainStore.setState({ selectedImages: allIndices });
+  };
+
+  const handleClearSelection = () => {
+    clearImageSelection();
   };
 
   const [prevLength, setPrevLength] = React.useState(images.length);
@@ -239,6 +314,16 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
         size="middle"
       />
     ),
+    modeToggle: (
+      <Button
+        className="image-preview__mode-toggle"
+        type="text"
+        icon={previewMode === 'single' ? <AppstoreOutlined /> : <UnorderedListOutlined />}
+        onClick={() => setPreviewMode(previewMode === 'single' ? 'multi' : 'single')}
+        size="middle"
+        title={previewMode === 'single' ? t('image.switch_to_multi', {defaultMessage: 'Switch to Multi View'}) : t('image.switch_to_single', {defaultMessage: 'Switch to Single View'})}
+      />
+    ),
     prev: images.length > 1 ? (
       <Button
         className="image-preview__nav image-preview__nav--prev"
@@ -334,7 +419,7 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
         <SaveOutlined />
       </Button>
     ),
-    bottomIndicator: (
+    bottomIndicator: previewMode === 'single' ? (
       <Dropdown
         menu={{
           items: [
@@ -369,33 +454,110 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
           {currentIndex + 1} / {images.length} <MoreOutlined />
         </div>
       </Dropdown>
-    )
+    ) : (
+      <Dropdown
+        menu={{
+          items: [
+            {
+              key: 'selectAll',
+              label: t('image.select_all', {defaultMessage: 'Select All'}),
+              onClick: handleSelectAll
+            },
+            {
+              key: 'clearSelection',
+              label: t('image.clear_selection', {defaultMessage: 'Clear Selection'}),
+              onClick: handleClearSelection
+            },
+            {
+              type: 'divider'
+            },
+            {
+              key: 'saveAll',
+              label: t('image.save_all'),
+              icon: <SaveOutlined />,
+              onClick: handleSaveAll
+            },
+            {
+              type: 'divider'
+            },
+            {
+              key: 'clearAll',
+              label: t('image.clear_all'),
+              icon: <DeleteOutlined />,
+              onClick: handleClearAll
+            }
+          ]
+        }}
+        placement="topRight"
+        trigger={['hover']}
+        overlayStyle={{ minWidth: 'auto', width: 'max-content' }}
+      >
+        <div className="image-preview__bottom-indicator" style={{ cursor: 'pointer' }}>
+          {selectedImages.size} / {images.length} <MoreOutlined />
+        </div>
+      </Dropdown>
+    ),
+    bottomMultiActions: previewMode === 'multi' && selectedImages.size > 0 ? (
+      <div className="image-preview__bottom-multi-actions">
+        <Button
+          className="image-preview__bottom-delete-selected"
+          icon={<DeleteOutlined />}
+          onClick={handleDeleteSelected}
+          size="middle"
+          style={{ width: '56px' }}
+          title={t('image.delete_selected', {defaultMessage: 'Delete Selected'})}
+        />
+        <SyncButton
+          disabled={sendingAll}
+          isAutoSync={false}
+          onSync={({ shiftKey }) => handleSendSelected({ shiftKey } as any)}
+          onAutoSyncToggle={() => {}}
+          buttonWidth={88}
+          mainButtonType="primary"
+          syncButtonTooltip={t('image.import_selected_as_smartobject', {defaultMessage: 'Import Selected as Smart Object'}) + ' | ' + t('image.import_tip')}
+        >
+          {sendingAll ? t('image.sending') : <SendOutlined />}
+        </SyncButton>
+      </div>
+    ) : null
   };
 
   return (
     <>
       <div className="image-preview">
         {actionButtons.close}
+        {actionButtons.modeToggle}
 
-        <div className="image-preview__container">
-          <ImagePreview
-            images={images}
-            currentIndex={currentIndex}
-            onIndexChange={setCurrentIndex}
-          />
+        {previewMode === 'single' ? (
+          <div className="image-preview__container">
+            <ImagePreview
+              images={images}
+              currentIndex={currentIndex}
+              onIndexChange={setCurrentIndex}
+            />
 
-          {actionButtons.prev}
+            {actionButtons.prev}
 
-          <div className="image-preview__right-buttons">
-            {actionButtons.next}
-            {actionButtons.jumpToLast}
+            <div className="image-preview__right-buttons">
+              {actionButtons.next}
+              {actionButtons.jumpToLast}
+            </div>
           </div>
-        </div>
-
+        ) : (
+          <div className="image-preview__multi-container">
+            <MultiImagePreview
+              images={images}
+              selectedImages={selectedImages}
+              onImageSelect={handleImageSelect}
+              onImageClick={handleImageClick}
+            />
+          </div>
+        )}
 
         {actionButtons.bottomIndicator}
-        {actionButtons.bottomDeleteCurrent}
-        {actionButtons.bottomSend}
+        {previewMode === 'single' && actionButtons.bottomDeleteCurrent}
+        {previewMode === 'single' && actionButtons.bottomSend}
+        {actionButtons.bottomMultiActions}
       </div>
       <Divider />
     </>
