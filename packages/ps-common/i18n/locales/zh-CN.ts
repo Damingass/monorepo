@@ -18,7 +18,7 @@ export const zhCN = {
   'comfy.channel_connecting': '通道连接中...',
   'comfy.server_reconnecting': 'ComfyUI服务器重连中',
   'comfy.version_mismatch': 'Comfy侧SDPPP版本({{comfyVersion}})与插件({{pluginVersion}})不匹配，运行可能有问题',
-  'comfy.cloud_recommend': '云端推荐：',
+  // 'comfy.cloud_recommend': '云端推荐：',
   'comfy.your_workflows': '你的工作流',
   'comfy.refresh_workflows': '刷新工作流列表',
   'comfy.queue_progress': '(队列:{{queueSize}}) {{progress}}% {{executingNodeTitle}}...',

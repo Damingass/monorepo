@@ -7,7 +7,6 @@ import { Alert, Button, Flex, Input, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import { createImageMaskWidgetRegistry } from '../../base/widgetable-image-mask/widgetable-widgets';
-import { ComfyCloudRecommendBanner } from './cloud_recommend';
 import { WorkflowListProvider } from './comfy_frontend';
 import './comfy_frontend.less';
 import { ComfyFrontendRendererContent } from './components';
@@ -54,7 +53,6 @@ export function ComfyFrontendRenderer() {
                     </Button> : null
                 }
             </Flex>
-            {(!comfyURL || comfyWebviewLoading || comfyWebviewLoadError || currentInputURL !== comfyURL) && <ComfyCloudRecommendBanner />}
             <WorkflowListProvider>
                 <ComfyFrontendContent />
             </WorkflowListProvider>
