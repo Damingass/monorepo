@@ -16,6 +16,7 @@ declare const SDPPP_VERSION: string;
 export function ComfyFrontendRenderer() {
     const { t, language } = useTranslation()
     const comfyURL = useStore(sdpppSDK.stores.PhotoshopStore, (state) => state.comfyURL);
+    const comfyView = useStore(sdpppSDK.stores.PhotoshopStore, (state) => state.comfyView);
     const comfyWebviewLoading = useStore(sdpppSDK.stores.PhotoshopStore, (state) => state.comfyWebviewLoading);
     const comfyWebviewLoadError = useStore(sdpppSDK.stores.PhotoshopStore, (state) => state.comfyWebviewLoadError);
     const [currentInputURL, setCurrentInputURL] = useState<string>('');
@@ -25,34 +26,39 @@ export function ComfyFrontendRenderer() {
         }
     }, [comfyURL]);
 
+    // 只在列表视图显示连接输入框
+    const showConnectionInput = comfyView !== 'detail';
+
     return (
         <>
-            <Flex gap={8} align="center">
-                <Tooltip title={t('comfy.help_tooltip', { defaultMessage: 'How to use?' })} placement="left">
-                    <Button
-                        type="text"
-                        size="small"
-                        icon={<QuestionCircleOutlined />}
-                        onClick={async () => {
-                            const banners = loadRemoteConfig('banners');
-                            const comfyURL = banners.find((banner: any) => banner.type === 'comfy_tutorial' && banner.locale == language)?.link;
-                            sdpppSDK.plugins.photoshop.openExternalLink({ url: comfyURL })
-                        }}
-                        style={{ color: 'var(--sdppp-host-text-color-secondary)' }}
+            {showConnectionInput && (
+                <Flex gap={8} align="center">
+                    <Tooltip title={t('comfy.help_tooltip', { defaultMessage: 'How to use?' })} placement="left">
+                        <Button
+                            type="text"
+                            size="small"
+                            icon={<QuestionCircleOutlined />}
+                            onClick={async () => {
+                                const banners = loadRemoteConfig('banners');
+                                const comfyURL = banners.find((banner: any) => banner.type === 'comfy_tutorial' && banner.locale == language)?.link;
+                                sdpppSDK.plugins.photoshop.openExternalLink({ url: comfyURL })
+                            }}
+                            style={{ color: 'var(--sdppp-host-text-color-secondary)' }}
+                        />
+                    </Tooltip>
+                    <Input
+                        value={currentInputURL}
+                        onChange={(e) => setCurrentInputURL(e.target.value)}
                     />
-                </Tooltip>
-                <Input
-                    value={currentInputURL}
-                    onChange={(e) => setCurrentInputURL(e.target.value)}
-                />
-                {!comfyURL || comfyWebviewLoading || comfyWebviewLoadError || currentInputURL !== comfyURL ?
-                    <Button type="primary" onClick={() => {
-                        sdpppSDK.plugins.photoshop.setComfyWebviewURL({ url: currentInputURL });
-                    }}>
-                        {t('comfy.connect')}
-                    </Button> : null
-                }
-            </Flex>
+                    {!comfyURL || comfyWebviewLoading || comfyWebviewLoadError || currentInputURL !== comfyURL ?
+                        <Button type="primary" onClick={() => {
+                            sdpppSDK.plugins.photoshop.setComfyWebviewURL({ url: currentInputURL });
+                        }}>
+                            {t('comfy.connect')}
+                        </Button> : null
+                    }
+                </Flex>
+            )}
             <WorkflowListProvider>
                 <ComfyFrontendContent />
             </WorkflowListProvider>

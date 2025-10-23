@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { Button, Tooltip, Divider, Progress, Space, Typography, Alert, Empty } from 'antd';
+import { Button, Tooltip, Progress, Space, Typography, Alert, Empty } from 'antd';
 import {
   SaveOutlined,
   ReloadOutlined,
@@ -299,44 +299,52 @@ export function WorkflowDetail({ currentWorkflow, setCurrentWorkflow }: { curren
   }, [widgetableValues, currentWorkflow])
 
   return (
-    <div className="workflow-edit-wrap">
-      <ComfyImagePreview />
-      <div className="workflow-edit-top">
-        <div className="workflow-edit-controls">
-          <div className="workflow-edit-controls-grid">
-          <div className="workflow-edit-controls-main">
-            <div className="workflow-edit-controls-main-top">
-              <div className="workflow-edit-controls-left">
-                <BackButton onBack={() => setCurrentWorkflow('')} />
-                <SaveButton currentWorkflow={currentWorkflow} />
-                <RefreshButton currentWorkflow={currentWorkflow} />
+    <div className="workflow-detail-container">
+      <div className="workflow-section">
+        <div className="workflow-edit-wrap">
+          <div className="workflow-edit-top">
+            <div className="workflow-edit-controls">
+              <div className="workflow-edit-controls-grid">
+              <div className="workflow-edit-controls-main">
+                <div className="workflow-edit-controls-main-top">
+                  <div className="workflow-edit-controls-left">
+                    <BackButton onBack={() => setCurrentWorkflow('')} />
+                    <SaveButton currentWorkflow={currentWorkflow} />
+                    <RefreshButton currentWorkflow={currentWorkflow} />
+                  </div>
+                  <div className="workflow-edit-controls-right">
+                    <StopAndCancelButton />
+                    <AutoRunButton currentWorkflow={currentWorkflow} setUploading={setUploading} />
+                  </div>
+                </div>
+                <div className="workflow-edit-controls-main-bottom">
+                  <WorkflowStatus currentWorkflow={currentWorkflow} uploading={uploading} />
+                </div>
               </div>
-              <div className="workflow-edit-controls-right">
-                <StopAndCancelButton />
-                <AutoRunButton currentWorkflow={currentWorkflow} setUploading={setUploading} />
+              <div className="workflow-edit-controls-center">
+                <RunButton currentWorkflow={currentWorkflow} setUploading={setUploading} />
               </div>
+              <div className="workflow-edit-multibuttons-vertical">
+                <RunMultiButtons currentWorkflow={currentWorkflow} setUploading={setUploading} />
+              </div>
+              </div>
+              <WorkBoundary />
             </div>
-            <div className="workflow-edit-controls-main-bottom">
-              <WorkflowStatus currentWorkflow={currentWorkflow} uploading={uploading} />
-            </div>
           </div>
-          <div className="workflow-edit-controls-center">
-            <RunButton currentWorkflow={currentWorkflow} setUploading={setUploading} />
+          <div>
+            <WorkflowEdit
+              widgetableStructure={widgetableStructure}
+              widgetableValues={widgetableValues}
+              widgetableErrors={widgetableErrors}
+              onWidgetChange={handleWidgetChange}
+              onTitleChange={handleTitleChange}
+            />
           </div>
-          <div className="workflow-edit-multibuttons-vertical">
-            <RunMultiButtons currentWorkflow={currentWorkflow} setUploading={setUploading} />
-          </div>
-          </div>
-          <WorkBoundary />
         </div>
       </div>
-      <WorkflowEdit
-        widgetableStructure={widgetableStructure}
-        widgetableValues={widgetableValues}
-        widgetableErrors={widgetableErrors}
-        onWidgetChange={handleWidgetChange}
-        onTitleChange={handleTitleChange}
-      />
+      <div className="preview-section">
+        <ComfyImagePreview />
+      </div>
     </div>
   );
 };
@@ -348,22 +356,19 @@ function ComfyImagePreview() {
   // 如果没有图片，显示空状态
   if (!images.length) {
     return (
-      <>
-        <div className="image-preview">
-          <div className="image-preview__container" style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            minHeight: '200px'
-          }}>
-            <Empty 
-              description="暂无生成的图片"
-              style={{ color: 'var(--sdppp-host-text-color)' }}
-            />
-          </div>
+      <div className="image-preview">
+        <div className="image-preview__container" style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          minHeight: '200px'
+        }}>
+          <Empty 
+            description="暂无生成的图片"
+            style={{ color: 'var(--sdppp-host-text-color)' }}
+          />
         </div>
-        <Divider />
-      </>
+      </div>
     );
   }
   

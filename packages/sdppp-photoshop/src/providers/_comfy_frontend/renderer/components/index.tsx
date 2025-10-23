@@ -31,6 +31,11 @@ export function ComfyFrontendRendererContent() {
         }
     }, [currentWorkflow, widgetablePath]);
 
+    // 将视图状态同步到 PhotoshopStore，以便其他组件可以访问
+    useEffect(() => {
+        sdpppSDK.stores.PhotoshopStore.setState({ comfyView: view });
+    }, [view]);
+
     return (
         <SDPPPErrorBoundary>
             <WorkflowList hidden={view === 'detail'} currentWorkflow={currentWorkflow} setCurrentWorkflow={setCurrentWorkflow} />

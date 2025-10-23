@@ -1,3 +1,31 @@
+// 整体左右布局容器
+.workflow-detail-container {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+}
+
+// 工作流部分（左侧）
+.workflow-section {
+  flex: 1;
+  min-width: 300px;
+  max-width: 300px;
+  border: 1px solid var(--sdppp-host-divider-color, #424242);
+  border-radius: 4px;
+  padding: 8px;
+  background-color: var(--sdppp-widget-background-color);
+  overflow: auto;
+}
+
+// 预览部分（右侧）
+.preview-section {
+  width: 400px;
+  min-width: 300px;
+  flex-shrink: 0;
+}
+
 // Workflow Detail Controls Layout
 .workflow-edit-controls {
   margin: 12px 0;
