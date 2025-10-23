@@ -57,14 +57,18 @@ export default function MultiImagePreview({
             <div
               key={`${image.url}-${index}`}
               className={`multi-image-preview__item ${isSelected ? 'multi-image-preview__item--selected' : ''}`}
-              onClick={() => onImageClick(index)}
+              onClick={() => {
+                console.log('Image container clicked for index:', index);
+                onImageClick(index);
+              }}
             >
               <div className="multi-image-preview__checkbox">
                 <Checkbox
                   checked={isSelected}
-                  onChange={(e) => {
+                  onClick={(e) => {
+                    console.log('Checkbox clicked for index:', index);
                     e.stopPropagation();
-                    onImageSelect(index);
+                    onImageClick(index);
                   }}
                 />
               </div>
@@ -97,30 +101,9 @@ export default function MultiImagePreview({
                   src={image.thumbnail_url}
                   alt={`Preview ${index + 1}`}
                   className="multi-image-preview__media"
-                  preview={{
-                    src: image.url,
-                    render: (originalNode, info) => {
-                      const previewUrl = info.src || '';
-                      if (isVideo(previewUrl)) {
-                        return (
-                          <video
-                            src={previewUrl}
-                            controls
-                            autoPlay
-                            style={{
-                              maxWidth: '100%',
-                              maxHeight: '100%',
-                              objectFit: 'contain'
-                            }}
-                          />
-                        );
-                      }
-                      return originalNode;
-                    }
-                  }}
+                  preview={false}
                   onLoad={() => handleImageLoad(index)}
                   onError={() => handleImageLoad(index)}
-                  onClick={(e) => e.stopPropagation()}
                 />
               ) : (
                 <div className="multi-image-preview__placeholder">
