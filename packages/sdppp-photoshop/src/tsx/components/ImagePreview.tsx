@@ -44,7 +44,7 @@ export default function ImagePreview({ images, currentIndex, onIndexChange }: Im
   }
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div style={{ position: 'relative', width: '100%', aspectRatio: '1', maxHeight: '100%' }}>
       {(imageLoading || isDownloading) && (
         <div style={{
           position: 'absolute',
@@ -90,7 +90,27 @@ export default function ImagePreview({ images, currentIndex, onIndexChange }: Im
             src={images[currentIndex].thumbnail_url}
             alt={`Preview ${currentIndex + 1}`}
             className="image-preview__image"
-            preview={false}
+            preview={{
+              src: images[currentIndex].url,
+              render: (originalNode, info) => {
+                const previewUrl = info.src || '';
+                if (isVideo(previewUrl)) {
+                  return (
+                    <video
+                      src={previewUrl}
+                      controls
+                      autoPlay
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        objectFit: 'contain'
+                      }}
+                    />
+                  );
+                }
+                return originalNode;
+              }
+            }}
             width={'100%'}
             height={'100%'}
             style={{

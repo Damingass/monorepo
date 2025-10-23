@@ -248,7 +248,6 @@ export function WorkflowDetail({ currentWorkflow, setCurrentWorkflow }: { curren
   // Removed debug render logging per request
   const [hasRecoverHistory, setHasRecoverHistory] = useState<boolean>(false);
   const [uploading, setUploading] = useState<boolean>(false);
-  //恢复历史记录
   useEffect(() => {
     if (currentWorkflow === widgetableStructure.widgetablePath.replace(/^workflows\//, '') && !hasRecoverHistory) {
       const historyValues = comfyWorkflowStore.getState().historyValues[currentWorkflow]

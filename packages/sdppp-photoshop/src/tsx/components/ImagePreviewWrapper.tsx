@@ -161,14 +161,9 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
   };
 
   const handleImageClick = (index: number) => {
-    console.log('handleImageClick called with index:', index, 'previewMode:', previewMode);
     if (previewMode === 'multi') {
-      // 在多图预览模式下，点击图片只进行选择操作，不切换预览模式
-      console.log('Calling toggleImageSelection for index:', index);
-      toggleImageSelection(index);
-    } else {
-      // 在单图预览模式下，切换到指定图片
       setCurrentIndex(index);
+      setPreviewMode('single');
     }
   };
 
