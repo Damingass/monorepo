@@ -129,6 +129,13 @@ export const enUS = {
   'image.copy': 'Copy',
   'image.sending': 'Sending...',
   'image.sending_all': 'Sending all images...',
+  'image.import_from_layer': 'Import from Layer',
+  'image.switch_to_multi': 'Switch to Multi View',
+  'image.switch_to_single': 'Switch to Single View',
+  'image.select_all': 'Select All',
+  'image.clear_selection': 'Clear Selection',
+  'image.delete_selected': 'Delete Selected',
+  'image.import_selected_as_smartobject': 'Import Selected as Smart Object',
 
   'mask.get.select_mask': 'Please select the mask to get',
   'mask.selection': 'Selection',

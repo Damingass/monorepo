@@ -10,8 +10,8 @@
   justify-content: center;
   box-sizing: border-box;
 
-  // 关闭按钮样式
-  &__close-btn {
+  // 模式切换按钮样式
+  &__mode-toggle {
     position: absolute;
     top: 8px;
     right: 8px;
@@ -38,8 +38,8 @@
     }
   }
 
-  // 模式切换按钮样式
-  &__mode-toggle {
+  // 从图层导入按钮样式
+  &__import-from-layer {
     position: absolute;
     top: 8px;
     right: 44px;
@@ -66,10 +66,17 @@
     }
   }
 
-  // hover时显示关闭按钮和模式切换按钮
-  &:hover &__close-btn,
-  &:hover &__mode-toggle {
+  // hover时显示模式切换按钮
+  &:hover &__mode-toggle,
+  &:hover &__import-from-layer {
     opacity: 1;
+  }
+  
+  // 当预览为空时，导入按钮始终显示
+  &__import-from-layer {
+    &.always-visible {
+      opacity: 1;
+    }
   }
 
   &__container {

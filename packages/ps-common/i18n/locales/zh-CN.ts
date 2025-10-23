@@ -129,6 +129,13 @@ export const zhCN = {
   'image.copy': '复制',
   'image.sending': '正在发送...',
   'image.sending_all': '正在发送所有图片...',
+  'image.import_from_layer': '从图层导入',
+  'image.switch_to_multi': '切换到多图模式',
+  'image.switch_to_single': '切换到单图模式',
+  'image.select_all': '全选',
+  'image.clear_selection': '清除选择',
+  'image.delete_selected': '删除选中的图片',
+  'image.import_selected_as_smartobject': '导入选中的图片为智能对象',
 
   'mask.get.select_mask': '请选择要获取的遮罩',
   'mask.selection': '选区',

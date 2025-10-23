@@ -1,4 +1,4 @@
-import { DeleteOutlined, LeftOutlined, MoreOutlined, RightOutlined, SaveOutlined, SendOutlined, ShrinkOutlined, StepForwardOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { DeleteOutlined, LeftOutlined, MoreOutlined, RightOutlined, SaveOutlined, SendOutlined, StepForwardOutlined, AppstoreOutlined, UnorderedListOutlined, PlusOutlined } from '@ant-design/icons';
 import { sdpppSDK, useTranslation } from '@sdppp/common';
 import { SyncButton } from '@sdppp/ui-library';
 import { Button, Divider, Dropdown } from 'antd';
@@ -14,7 +14,7 @@ interface ImagePreviewWrapperProps {
 
 export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperProps) {
   const { t } = useTranslation();
-  const images = MainStore(state => state.previewImageList);
+  const rawImages = MainStore(state => state.previewImageList);
   const previewMode = MainStore(state => state.previewMode);
   const selectedImages = MainStore(state => state.selectedImages);
   const setPreviewMode = MainStore(state => state.setPreviewMode);
@@ -25,8 +25,18 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
   const [sendingAll, setSendingAll] = React.useState(false);
   const [isShiftPressed, setIsShiftPressed] = React.useState(false);
   const [isAutoSync, setIsAutoSync] = React.useState(false);
+  const [loadingFromLayer, setLoadingFromLayer] = React.useState(false);
   const isShiftPressedRef = React.useRef(false);
   const pendingAutoSendRef = React.useRef(new Map<string, { cancel: boolean }>());
+
+  // 确保 thumbnail_url 总是有值
+  const images = React.useMemo(() => 
+    rawImages.map(img => ({
+      ...img,
+      thumbnail_url: img.thumbnail_url || img.url
+    })),
+    [rawImages]
+  );
 
   const currentItem = images[currentIndex];
   const isCurrentItemImage = currentItem ? isImage(currentItem.url) : false;
@@ -70,6 +80,111 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
     await sendToPSAtIndex(currentIndex, { shiftKey: !!event?.shiftKey });
   };
 
+  // 从图层导入图片 - 使用直接调用 getImage 的方式，避免 dialog 关闭问题
+  const handleImportFromLayer = async () => {
+    console.log('[图层导入] 开始导入流程（直接模式）');
+    
+    try {
+      setLoadingFromLayer(true);
+      
+      // 获取当前状态
+      const currentList = MainStore.getState().previewImageList;
+      const activeDocID = sdpppSDK.stores.PhotoshopStore.getState().activeDocumentID;
+      const webviewState = sdpppSDK.stores.WebviewStore.getState() as any;
+      const boundary = webviewState.workBoundaries?.[activeDocID] || 'curlayer';
+      
+      console.log('[图层导入] 当前状态 - activeDocID:', activeDocID, 'boundary:', boundary);
+      
+      // 使用固定参数直接调用 getImage，避免使用 selectLayerImage 的 dialog
+      const getImageParams = {
+        boundary: boundary,
+        content: 'curlayer',  // 当前图层
+        imageSize: 2048,  // 最大尺寸
+        imageQuality: 90,  // 质量
+        cropBySelection: 'no' as const,
+        SkipNonNormalLayer: true
+      };
+      
+      console.log('[图层导入] 调用 getImage，参数:', getImageParams);
+      const imageResult = await sdpppSDK.plugins.photoshop.getImage(getImageParams);
+      console.log('[图层导入] getImage 返回结果:', imageResult);
+      
+      if (imageResult.error) {
+        console.error('[图层导入] getImage 返回错误:', imageResult.error);
+        alert(`导入失败: ${imageResult.error}`);
+        setLoadingFromLayer(false);
+        return;
+      }
+      
+      if (!imageResult.thumbnail_url && !imageResult.source && !imageResult.file_token) {
+        console.warn('[图层导入] getImage 没有返回图像数据，结果:', imageResult);
+        alert('未获取到图像数据，请确保当前有打开的文档和可见的图层');
+        setLoadingFromLayer(false);
+        return;
+      }
+
+      // 使用 file_token 作为 nativePath（如果可用），否则使用 source
+      const nativePath = imageResult.file_token || imageResult.source;
+      
+      // 在 UXP 环境中，需要将文件路径转换为 data URL 或使用正确的协议
+      // thumbnail_url 通常已经是 data:image URL 格式
+      let displayUrl = imageResult.thumbnail_url || '';
+      
+      // 如果没有 thumbnail_url，尝试使用 source
+      if (!displayUrl && imageResult.source) {
+        displayUrl = imageResult.source;
+      }
+      
+      // 如果还是没有，尝试使用 file_token 并转换为 file:// URL
+      if (!displayUrl && imageResult.file_token) {
+        // UXP 中的文件路径需要使用 file:// 协议
+        if (!imageResult.file_token.startsWith('data:') && !imageResult.file_token.startsWith('http')) {
+          displayUrl = imageResult.file_token.startsWith('file://') 
+            ? imageResult.file_token 
+            : `file:///${imageResult.file_token.replace(/\\/g, '/')}`;
+        } else {
+          displayUrl = imageResult.file_token;
+        }
+      }
+      
+      console.log('[图层导入] 图像URL处理:', {
+        thumbnail_url: imageResult.thumbnail_url,
+        source: imageResult.source,
+        file_token: imageResult.file_token,
+        finalDisplayUrl: displayUrl
+      });
+      
+      const newImage = {
+        url: displayUrl,
+        thumbnail_url: displayUrl,  // 使用相同的URL确保可以显示
+        nativePath: nativePath,
+        source: 'layer-import',
+        docId: activeDocID,
+        boundary: boundary,
+        width: (imageResult as any)?.width,
+        height: (imageResult as any)?.height,
+        downloading: false
+      };
+      
+      console.log('[图层导入] 添加新图像到预览列表:', newImage);
+      console.log('[图层导入] 当前列表长度:', currentList.length, '新列表长度:', currentList.length + 1);
+      
+      MainStore.setState({
+        previewImageList: [...currentList, newImage]
+      });
+      
+      console.log('[图层导入] 图像已成功添加到预览列表');
+      
+    } catch (error) {
+      console.error('[图层导入] 导入失败，异常详情:', error);
+      console.error('[图层导入] 错误堆栈:', (error as Error)?.stack);
+      alert(`导入异常: ${(error as Error)?.message}`);
+    } finally {
+      setLoadingFromLayer(false);
+      console.log('[图层导入] 导入流程结束');
+    }
+  };
+
   // Send by URL using nativePath once ready
   const sendNativeImageByUrl = async (url: string) => {
     try {
@@ -90,10 +205,6 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
     } finally {
       setSending(false);
     }
-  };
-
-  const handleClose = () => {
-    MainStore.setState({ showingPreview: false });
   };
 
   const handleDeleteCurrent = () => {
@@ -300,20 +411,7 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
     };
   }, []);
 
-  if (!images.length) {
-    return null;
-  }
-
   const actionButtons = {
-    close: (
-      <Button
-        className="image-preview__close-btn"
-        type="text"
-        icon={<ShrinkOutlined />}
-        onClick={handleClose}
-        size="middle"
-      />
-    ),
     modeToggle: (
       <Button
         className="image-preview__mode-toggle"
@@ -322,6 +420,17 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
         onClick={() => setPreviewMode(previewMode === 'single' ? 'multi' : 'single')}
         size="middle"
         title={previewMode === 'single' ? t('image.switch_to_multi', {defaultMessage: 'Switch to Multi View'}) : t('image.switch_to_single', {defaultMessage: 'Switch to Single View'})}
+      />
+    ),
+    importFromLayer: (
+      <Button
+        className={`image-preview__import-from-layer ${!images.length ? 'always-visible' : ''}`}
+        type="text"
+        icon={<PlusOutlined />}
+        onClick={handleImportFromLayer}
+        loading={loadingFromLayer}
+        size="middle"
+        title={t('image.import_from_layer', {defaultValue: '从图层导入'})}
       />
     ),
     prev: images.length > 1 ? (
@@ -522,11 +631,35 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
     ) : null
   };
 
+  // 如果没有图片，只显示导入按钮和空状态
+  if (!images.length) {
+    return (
+      <>
+        <div className="image-preview">
+          {actionButtons.importFromLayer}
+          <div className="image-preview__container" style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '200px',
+            color: 'var(--sdppp-host-text-color-secondary)'
+          }}>
+            <div style={{ textAlign: 'center' }}>
+              <PlusOutlined style={{ fontSize: 48, opacity: 0.3, marginBottom: 16 }} />
+              <p>点击右上角的 + 按钮从图层导入图片</p>
+            </div>
+          </div>
+        </div>
+        <Divider />
+      </>
+    );
+  }
+
   return (
     <>
       <div className="image-preview">
-        {actionButtons.close}
         {actionButtons.modeToggle}
+        {actionButtons.importFromLayer}
 
         {previewMode === 'single' ? (
           <div className="image-preview__container">

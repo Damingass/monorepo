@@ -351,26 +351,6 @@ export function WorkflowDetail({ currentWorkflow, setCurrentWorkflow }: { curren
 
 // ComfyUI 专用的图片预览组件
 function ComfyImagePreview() {
-  const images = MainStore(state => state.previewImageList);
-  
-  // 如果没有图片，显示空状态
-  if (!images.length) {
-    return (
-      <div className="image-preview">
-        <div className="image-preview__container" style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          minHeight: '200px'
-        }}>
-          <Empty 
-            description="暂无生成的图片"
-            style={{ color: 'var(--sdppp-host-text-color)' }}
-          />
-        </div>
-      </div>
-    );
-  }
-  
+  // 始终渲染 ImagePreviewWrapper，让它自己处理空状态
   return <ImagePreviewWrapper />;
 }
