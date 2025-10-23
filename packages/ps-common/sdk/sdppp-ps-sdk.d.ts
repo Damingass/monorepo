@@ -35,6 +35,8 @@ export declare const sdpppSDK: {
 			comfyWebviewVersion: string;
 			comfyHTTPCode: number;
 			comfyURL: string;
+			comfyView?: 'list' | 'detail';
+			comfyAutoRunning?: boolean;
 			sdkWebviewFocusing: boolean;
 			sdkWebviewConnectStatus: "connecting" | "connected" | "disconnected";
 			isLogin: boolean;

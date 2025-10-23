@@ -16,25 +16,25 @@ export default function App() {
     const psTheme = useStore(sdpppSDK.stores.PhotoshopStore, state => state.theme)
     const showingPreview = MainStore(state => state.showingPreview)
     const previewImageList = MainStore(state => state.previewImageList)
+    const provider = MainStore(state => state.provider)
 
     const fontSize = 12
 
-    
-
     return <I18nextProvider i18n={i18n}>
-        <AppContent psTheme={psTheme} showingPreview={showingPreview} previewImageList={previewImageList} fontSize={fontSize} />
+        <AppContent psTheme={psTheme} showingPreview={showingPreview} previewImageList={previewImageList} fontSize={fontSize} provider={provider} />
     </I18nextProvider>
 }
 
-function AppContent({ psTheme, showingPreview, previewImageList, fontSize }: {
+function AppContent({ psTheme, showingPreview, previewImageList, fontSize, provider }: {
     psTheme: string;
     showingPreview: boolean;
     previewImageList: any[];
     fontSize: number;
+    provider: string;
 }) {
     const { t, isZhCN } = useTranslation()
     const antdLocale = isZhCN() ? zhCN : enUS
-    
+    const isComfyUI = provider === 'ComfyUI'
 
     return <div id="app" className={themeClassName(psTheme)}>
         <ConfigProvider
@@ -120,13 +120,13 @@ function AppContent({ psTheme, showingPreview, previewImageList, fontSize }: {
                     },
                 }
             }}>
-            {!showingPreview && previewImageList.length ? <Flex gap={8} justify="center" align="center" style={{ marginBottom: 16 }}>
+            {!isComfyUI && !showingPreview && previewImageList.length ? <Flex gap={8} justify="center" align="center" style={{ marginBottom: 16 }}>
                 <Button size="small" type="primary" onClick={() => MainStore.setState({ showingPreview: true })}>
-                    {t('preview.show', { count: previewImageList.length, defaultMessage: 'Show Preview ({count})' })}
+                    {t('preview.show', { count: previewImageList.length, defaultValue: 'Show Preview ({count})' })}
                 </Button>
             </Flex> : null}
             {
-                showingPreview ? <ImagePreviewWrapper /> : null
+                !isComfyUI && showingPreview ? <ImagePreviewWrapper /> : null
             }
             <SDPPPGateway />
         </ConfigProvider>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { Button, Tooltip, Divider, Progress, Space, Typography, Alert } from 'antd';
+import { Button, Tooltip, Divider, Progress, Space, Typography, Alert, Empty } from 'antd';
 import {
   SaveOutlined,
   ReloadOutlined,
@@ -21,6 +21,7 @@ import { debug } from 'debug';
 import { useTranslation } from '@sdppp/common';
 import { ComfyTask } from '../../ComfyTask';
 import { WorkBoundary } from '../../../base/components';
+import ImagePreviewWrapper from '../../../../tsx/components/ImagePreviewWrapper';
 
 const log = debug('comfy-frontend:workflow-detail')
 const { Text } = Typography; 
@@ -299,6 +300,7 @@ export function WorkflowDetail({ currentWorkflow, setCurrentWorkflow }: { curren
 
   return (
     <div className="workflow-edit-wrap">
+      <ComfyImagePreview />
       <div className="workflow-edit-top">
         <div className="workflow-edit-controls">
           <div className="workflow-edit-controls-grid">
@@ -338,3 +340,32 @@ export function WorkflowDetail({ currentWorkflow, setCurrentWorkflow }: { curren
     </div>
   );
 };
+
+// ComfyUI 专用的图片预览组件
+function ComfyImagePreview() {
+  const images = MainStore(state => state.previewImageList);
+  
+  // 如果没有图片，显示空状态
+  if (!images.length) {
+    return (
+      <>
+        <div className="image-preview">
+          <div className="image-preview__container" style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            minHeight: '200px'
+          }}>
+            <Empty 
+              description="暂无生成的图片"
+              style={{ color: 'var(--sdppp-host-text-color)' }}
+            />
+          </div>
+        </div>
+        <Divider />
+      </>
+    );
+  }
+  
+  return <ImagePreviewWrapper />;
+}

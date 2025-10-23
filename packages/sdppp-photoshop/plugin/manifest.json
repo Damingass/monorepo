@@ -41,7 +41,7 @@
         "default": "SD-PPP 2.0-prerelease.1"
       },
       "minimumSize": {
-        "width": 330,
+        "width": 400,
         "height": 100
       },
       "maximumSize": {
@@ -49,11 +49,11 @@
         "height": 1440
       },
       "preferredDockedSize": {
-        "width": 330,
+        "width": 400,
         "height": 540
       },
       "preferredFloatingSize": {
-        "width": 330,
+        "width": 400,
         "height": 540
       },
       "icons": [

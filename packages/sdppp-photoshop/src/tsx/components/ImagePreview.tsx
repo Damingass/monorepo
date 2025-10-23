@@ -90,27 +90,7 @@ export default function ImagePreview({ images, currentIndex, onIndexChange }: Im
             src={images[currentIndex].thumbnail_url}
             alt={`Preview ${currentIndex + 1}`}
             className="image-preview__image"
-            preview={{
-              src: images[currentIndex].url,
-              render: (originalNode, info) => {
-                const previewUrl = info.src || '';
-                if (isVideo(previewUrl)) {
-                  return (
-                    <video
-                      src={previewUrl}
-                      controls
-                      autoPlay
-                      style={{
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                        objectFit: 'contain'
-                      }}
-                    />
-                  );
-                }
-                return originalNode;
-              }
-            }}
+            preview={false}
             width={'100%'}
             height={'100%'}
             style={{
