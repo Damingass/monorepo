@@ -1,4 +1,4 @@
-import { DeleteOutlined, LeftOutlined, MoreOutlined, RightOutlined, SaveOutlined, SendOutlined, StepForwardOutlined, AppstoreOutlined, UnorderedListOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, LeftOutlined, MoreOutlined, RightOutlined, SaveOutlined, SendOutlined, StepForwardOutlined, AppstoreOutlined, UnorderedListOutlined, PlusOutlined, PlusCircleOutlined } from '@ant-design/icons';
 import { sdpppSDK, useTranslation } from '@sdppp/common';
 import { SyncButton } from '@sdppp/ui-library';
 import { Button, Divider, Dropdown } from 'antd';
@@ -7,6 +7,7 @@ import { isImage } from '../../utils/fileType';
 import { MainStore } from '../App.store';
 import ImagePreview from './ImagePreview';
 import MultiImagePreview from './MultiImagePreview';
+import SequencePlayer from './SequencePlayer';
 
 interface ImagePreviewWrapperProps {
   children?: React.ReactNode;
@@ -17,9 +18,13 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
   const rawImages = MainStore(state => state.previewImageList);
   const previewMode = MainStore(state => state.previewMode);
   const selectedImages = MainStore(state => state.selectedImages);
+  const sequenceFrames = MainStore(state => state.sequenceFrames);
   const setPreviewMode = MainStore(state => state.setPreviewMode);
   const toggleImageSelection = MainStore(state => state.toggleImageSelection);
   const clearImageSelection = MainStore(state => state.clearImageSelection);
+  const addToSequenceFrames = MainStore(state => state.addToSequenceFrames);
+  const removeSequenceFrame = MainStore(state => state.removeSequenceFrame);
+  const clearSequenceFrames = MainStore(state => state.clearSequenceFrames);
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const [sending, setSending] = React.useState(false);
   const [sendingAll, setSendingAll] = React.useState(false);
@@ -39,7 +44,8 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
   );
 
   const currentItem = images[currentIndex];
-  const isCurrentItemImage = currentItem ? isImage(currentItem.url) : false;
+  // 从图层导入的图片默认认为是图片类型，即使URL可能没有扩展名
+  const isCurrentItemImage = currentItem ? (currentItem.source === 'layer-import' || isImage(currentItem.url)) : false;
 
   // Get boundary display text (similar to WorkBoundary.tsx)
   const getBoundaryText = (boundary: any): string => {
@@ -61,16 +67,44 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
   const sendToPSAtIndex = async (index: number, opts?: { shiftKey?: boolean }) => {
     try {
       setSending(true);
-      const type = opts?.shiftKey ? 'newdoc' : 'smartobject';
-      await sdpppSDK.plugins.photoshop.importImage({
-        nativePath: images[index].nativePath || images[index].url,
-        // Pass boundary if available; default to 'canvas'
-        boundary: images[index].boundary ?? 'canvas',
-        type: type,
-        // Pass through original image dimensions when known
+      const type = opts?.shiftKey ? ('newdoc' as const) : ('smartobject' as const);
+      const imageToSend = images[index];
+      
+      const importParams = {
+        nativePath: imageToSend.nativePath || imageToSend.url,
+        boundary: imageToSend.boundary ?? 'canvas',
+        type,
         sourceWidth: (images as any)[index]?.width,
         sourceHeight: (images as any)[index]?.height
+      };
+      
+      console.log('[导入到PS] 开始导入图像:', {
+        index,
+        source: imageToSend.source,
+        imageData: {
+          nativePath: imageToSend.nativePath,
+          url: imageToSend.url,
+          boundary: imageToSend.boundary,
+        },
+        importParams
       });
+      
+      // 检查nativePath是否有效
+      if (!importParams.nativePath) {
+        const errorMsg = '图像路径为空，无法导入';
+        console.error('[导入到PS]', errorMsg);
+        alert(errorMsg);
+        return;
+      }
+      
+      const result = await sdpppSDK.plugins.photoshop.importImage(importParams);
+      
+      console.log('[导入到PS] 导入成功，返回结果:', result);
+    } catch (error) {
+      console.error('[导入到PS] 导入失败，详细错误:', error);
+      console.error('[导入到PS] 错误堆栈:', (error as Error)?.stack);
+      alert(`导入失败: ${(error as Error)?.message || error}`);
+      throw error;
     } finally {
       setSending(false);
     }
@@ -123,41 +157,59 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
         return;
       }
 
-      // 使用 file_token 作为 nativePath（如果可用），否则使用 source
-      const nativePath = imageResult.file_token || imageResult.source;
-      
-      // 在 UXP 环境中，需要将文件路径转换为 data URL 或使用正确的协议
-      // thumbnail_url 通常已经是 data:image URL 格式
-      let displayUrl = imageResult.thumbnail_url || '';
-      
-      // 如果没有 thumbnail_url，尝试使用 source
-      if (!displayUrl && imageResult.source) {
-        displayUrl = imageResult.source;
-      }
-      
-      // 如果还是没有，尝试使用 file_token 并转换为 file:// URL
-      if (!displayUrl && imageResult.file_token) {
-        // UXP 中的文件路径需要使用 file:// 协议
-        if (!imageResult.file_token.startsWith('data:') && !imageResult.file_token.startsWith('http')) {
-          displayUrl = imageResult.file_token.startsWith('file://') 
-            ? imageResult.file_token 
-            : `file:///${imageResult.file_token.replace(/\\/g, '/')}`;
-        } else {
-          displayUrl = imageResult.file_token;
-        }
-      }
-      
-      console.log('[图层导入] 图像URL处理:', {
+      console.log('[图层导入] getImage 返回数据:', {
         thumbnail_url: imageResult.thumbnail_url,
         source: imageResult.source,
-        file_token: imageResult.file_token,
-        finalDisplayUrl: displayUrl
+        file_token: imageResult.file_token
       });
+
+      // 核心修复：直接使用 source 或 file_token 作为 nativePath
+      // 但需要正确处理路径格式（去掉file://前缀，确保是纯文件系统路径）
+      let rawPath = imageResult.source || imageResult.file_token || '';
+      let nativePath = rawPath;
+      
+      // 处理路径格式
+      if (rawPath.startsWith('file://')) {
+        // 去掉 file:// 前缀: file:///C:/Users/... -> C:/Users/...
+        nativePath = rawPath.replace(/^file:\/\/\//, '').replace(/^file:\/\//, '');
+        console.log('[图层导入] 去掉file://前缀:', { rawPath, nativePath });
+      }
+      
+      // 确保使用正确的路径分隔符（Windows）
+      // 但不要改变路径，因为SDK可能接受两种格式
+      
+      console.log('[图层导入] 最终路径:', {
+        rawPath,
+        nativePath,
+        isFilePath: nativePath && !nativePath.startsWith('http') && !nativePath.startsWith('data:')
+      });
+
+      if (!nativePath) {
+        console.error('[图层导入] 无法获取有效路径');
+        alert('无法获取图像路径');
+        setLoadingFromLayer(false);
+        return;
+      }
+
+      // 用于显示的URL
+      let displayUrl = imageResult.thumbnail_url || '';
+      if (!displayUrl && rawPath) {
+        // 如果没有thumbnail_url，为显示创建file:// URL
+        if (rawPath.startsWith('file://')) {
+          displayUrl = rawPath;
+        } else if (rawPath.startsWith('data:')) {
+          displayUrl = rawPath;
+        } else {
+          displayUrl = `file:///${rawPath.replace(/\\/g, '/')}`;
+        }
+      }
+
+      console.log('[图层导入] 显示URL:', displayUrl);
       
       const newImage = {
         url: displayUrl,
-        thumbnail_url: displayUrl,  // 使用相同的URL确保可以显示
-        nativePath: nativePath,
+        thumbnail_url: displayUrl,
+        nativePath: nativePath,  // 关键：使用纯路径，不是file:// URL
         source: 'layer-import',
         docId: activeDocID,
         boundary: boundary,
@@ -327,6 +379,32 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
   };
 
   const handleClearSelection = () => {
+    clearImageSelection();
+  };
+
+  // 添加到序列帧
+  const handleAddCurrentToSequence = () => {
+    if (currentItem) {
+      addToSequenceFrames([{
+        url: currentItem.url,
+        thumbnail_url: currentItem.thumbnail_url || currentItem.url,
+        nativePath: currentItem.nativePath
+      }]);
+    }
+  };
+
+  const handleAddSelectedToSequence = () => {
+    if (selectedImages.size === 0) return;
+    
+    const selectedImageItems = Array.from(selectedImages)
+      .map(index => images[index])
+      .map(img => ({
+        url: img.url,
+        thumbnail_url: img.thumbnail_url || img.url,
+        nativePath: img.nativePath
+      }));
+    
+    addToSequenceFrames(selectedImageItems);
     clearImageSelection();
   };
 
@@ -533,6 +611,15 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
         menu={{
           items: [
             {
+              key: 'addToSequence',
+              label: '添加到序列帧',
+              icon: <PlusCircleOutlined />,
+              onClick: handleAddCurrentToSequence
+            },
+            {
+              type: 'divider'
+            },
+            {
               key: 'saveCurrent',
               label: t('image.save_current'),
               icon: <SaveOutlined />,
@@ -567,6 +654,16 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
       <Dropdown
         menu={{
           items: [
+            {
+              key: 'addSelectedToSequence',
+              label: '添加选中到序列帧',
+              icon: <PlusCircleOutlined />,
+              onClick: handleAddSelectedToSequence,
+              disabled: selectedImages.size === 0
+            },
+            {
+              type: 'divider'
+            },
             {
               key: 'selectAll',
               label: t('image.select_all', {defaultMessage: 'Select All'}),
@@ -651,6 +748,14 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
           </div>
         </div>
         <Divider />
+        
+        {/* 序列帧播放器 */}
+        <SequencePlayer
+          images={sequenceFrames}
+          onRemoveImage={removeSequenceFrame}
+          onClearAll={clearSequenceFrames}
+        />
+        <Divider />
       </>
     );
   }
@@ -692,6 +797,14 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
         {previewMode === 'single' && actionButtons.bottomSend}
         {actionButtons.bottomMultiActions}
       </div>
+      <Divider />
+      
+      {/* 序列帧播放器 */}
+      <SequencePlayer
+        images={sequenceFrames}
+        onRemoveImage={removeSequenceFrame}
+        onClearAll={clearSequenceFrames}
+      />
       <Divider />
     </>
   );

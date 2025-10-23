@@ -21,12 +21,20 @@ export const MainStore = create<{
     previewError: string
     previewMode: 'single' | 'multi'
     selectedImages: Set<number>
+    sequenceFrames: {
+        url: string,
+        thumbnail_url: string,
+        nativePath?: string,
+    }[]
     downloadAndAppendImage: (image: { url: string, source: string, docId?: number, boundary?: any }) => Promise<void>
     deletePreviewImages: (nativePaths: string[]) => Promise<void>
     setShowingPreview: (showing: boolean) => void
     setPreviewMode: (mode: 'single' | 'multi') => void
     toggleImageSelection: (index: number) => void
     clearImageSelection: () => void
+    addToSequenceFrames: (images: { url: string, thumbnail_url: string, nativePath?: string }[]) => void
+    removeSequenceFrame: (index: number) => void
+    clearSequenceFrames: () => void
 }>()(persist((set) => ({
     provider: '',
     previewImageList: [
@@ -113,6 +121,7 @@ export const MainStore = create<{
     previewError: '',
     previewMode: 'single',
     selectedImages: new Set<number>(),
+    sequenceFrames: [],
     setPreviewError: (error: string) => set({ previewError: error }),
     setShowingPreview: (showing: boolean) => set({ showingPreview: showing }),
     setPreviewMode: (mode: 'single' | 'multi') => set({ previewMode: mode }),
@@ -125,7 +134,14 @@ export const MainStore = create<{
         }
         return { selectedImages: newSelected };
     }),
-    clearImageSelection: () => set({ selectedImages: new Set<number>() })
+    clearImageSelection: () => set({ selectedImages: new Set<number>() }),
+    addToSequenceFrames: (images) => set((state) => ({
+        sequenceFrames: [...state.sequenceFrames, ...images]
+    })),
+    removeSequenceFrame: (index) => set((state) => ({
+        sequenceFrames: state.sequenceFrames.filter((_, i) => i !== index)
+    })),
+    clearSequenceFrames: () => set({ sequenceFrames: [] })
 }), {
     name: 'main-store',
     storage: createJSONStorage(() => ({
