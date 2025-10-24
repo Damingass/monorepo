@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Button, InputNumber, Image, Tooltip } from 'antd';
+import { Button, InputNumber, Image, Tooltip, message } from 'antd';
 import { 
   PlayCircleOutlined, 
   PauseCircleOutlined, 
   DeleteOutlined,
   ClearOutlined,
   LeftOutlined,
-  RightOutlined
+  RightOutlined,
+  AppstoreOutlined
 } from '@ant-design/icons';
 import { useTranslation } from '@sdppp/common';
 import './SequencePlayer.less';
@@ -16,16 +17,22 @@ interface SequencePlayerProps {
     url: string;
     thumbnail_url: string;
     nativePath?: string;
+    width?: number;
+    height?: number;
   }>;
   onRemoveImage: (index: number) => void;
   onClearAll: () => void;
+  onSpritesheetGenerated?: (dataUrl: string) => void;
 }
 
-export default function SequencePlayer({ images, onRemoveImage, onClearAll }: SequencePlayerProps) {
+export default function SequencePlayer({ images, onRemoveImage, onClearAll, onSpritesheetGenerated }: SequencePlayerProps) {
   const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playInterval, setPlayInterval] = useState(1000); // 默认1秒
+  const [rows, setRows] = useState(1); // spritesheet行数
+  const [cols, setCols] = useState(1); // spritesheet列数
+  const [generatingSpritesheet, setGeneratingSpritesheet] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // 清理定时器
@@ -86,6 +93,111 @@ export default function SequencePlayer({ images, onRemoveImage, onClearAll }: Se
   const handleIntervalChange = (value: number | null) => {
     if (value && value > 0) {
       setPlayInterval(value);
+    }
+  };
+
+  // 生成spritesheet
+  const handleGenerateSpritesheet = async () => {
+    if (images.length === 0) {
+      message.error('没有图片可以生成spritesheet');
+      return;
+    }
+
+    if (rows <= 0 || cols <= 0) {
+      message.error('行数和列数必须大于0');
+      return;
+    }
+
+    const totalCells = rows * cols;
+    if (totalCells < images.length) {
+      message.warning(`当前设置 ${rows}×${cols} = ${totalCells} 个格子，但有 ${images.length} 张图片。将只使用前 ${totalCells} 张图片。`);
+    }
+
+    setGeneratingSpritesheet(true);
+
+    try {
+      // 加载所有图片（使用原图URL而不是缩略图，保持原始分辨率）
+      const loadedImages = await Promise.all(
+        images.slice(0, totalCells).map((img, index) => {
+          return new Promise<HTMLImageElement>((resolve, reject) => {
+            const image = new window.Image();
+            image.crossOrigin = 'anonymous';
+            image.onload = () => {
+              console.log(`[Spritesheet] 图片 ${index} 加载完成，尺寸: ${image.width}×${image.height}`);
+              resolve(image);
+            };
+            image.onerror = (e) => {
+              console.error(`[Spritesheet] 图片 ${index} 加载失败:`, e);
+              reject(e);
+            };
+            // 关键修改：使用原图URL（url）而不是缩略图（thumbnail_url）
+            // 这样可以保持原始分辨率
+            image.src = img.url;
+          });
+        })
+      );
+
+      console.log('[Spritesheet] 成功加载了', loadedImages.length, '张图片');
+
+      // 计算单元格尺寸（使用第一张图片的原始尺寸）
+      const cellWidth = loadedImages[0].width;
+      const cellHeight = loadedImages[0].height;
+
+      console.log('[Spritesheet] 单元格尺寸（原始分辨率）:', cellWidth, 'x', cellHeight);
+
+      // 创建canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = cols * cellWidth;
+      canvas.height = rows * cellHeight;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        throw new Error('无法创建canvas context');
+      }
+
+      console.log('[Spritesheet] Canvas总尺寸（原始分辨率）:', canvas.width, 'x', canvas.height);
+      console.log('[Spritesheet] 说明：每个单元格', cellWidth, 'x', cellHeight, '| 布局', rows, 'x', cols);
+
+      // 绘制所有图片到canvas（保持原始分辨率，不缩放）
+      let imageIndex = 0;
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          if (imageIndex < loadedImages.length) {
+            const x = col * cellWidth;
+            const y = row * cellHeight;
+            const img = loadedImages[imageIndex];
+            
+            // 使用原始尺寸绘制，保持分辨率
+            ctx.drawImage(img, x, y, cellWidth, cellHeight);
+            
+            console.log(`[Spritesheet] 绘制图片 ${imageIndex}:`, 
+              `原始尺寸 ${img.width}×${img.height} → 位置 (${x}, ${y})`);
+            imageIndex++;
+          }
+        }
+      }
+
+      // 转换为data URL
+      const dataUrl = canvas.toDataURL('image/png');
+      const fileSizeKB = (dataUrl.length / 1024).toFixed(2);
+      console.log('[Spritesheet] 生成完成！');
+      console.log('[Spritesheet] - 最终尺寸:', canvas.width, 'x', canvas.height, '像素');
+      console.log('[Spritesheet] - 文件大小:', fileSizeKB, 'KB');
+      console.log('[Spritesheet] - 单元格尺寸:', cellWidth, 'x', cellHeight);
+      console.log('[Spritesheet] - 布局:', rows, '行 x', cols, '列 =', rows * cols, '个格子');
+
+      message.success(`Spritesheet生成成功！尺寸: ${canvas.width}×${canvas.height}像素（保持原始分辨率）`);
+
+      // 调用回调函数
+      if (onSpritesheetGenerated) {
+        onSpritesheetGenerated(dataUrl);
+      }
+
+    } catch (error) {
+      console.error('[Spritesheet] 生成失败:', error);
+      message.error(`生成失败: ${(error as Error)?.message || error}`);
+    } finally {
+      setGeneratingSpritesheet(false);
     }
   };
 
@@ -169,6 +281,42 @@ export default function SequencePlayer({ images, onRemoveImage, onClearAll }: Se
               onClick={onClearAll}
               danger
             />
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* Spritesheet生成控制 */}
+      <div className="sequence-player__spritesheet">
+        <span className="sequence-player__spritesheet-label">
+          生成Spritesheet:
+        </span>
+        <div className="sequence-player__spritesheet-inputs">
+          <span className="sequence-player__spritesheet-input-label">行:</span>
+          <InputNumber
+            min={1}
+            max={20}
+            value={rows}
+            onChange={(value) => setRows(value || 1)}
+            style={{ width: 60 }}
+          />
+          <span className="sequence-player__spritesheet-input-label">列:</span>
+          <InputNumber
+            min={1}
+            max={20}
+            value={cols}
+            onChange={(value) => setCols(value || 1)}
+            style={{ width: 60 }}
+          />
+          <Tooltip title={`将生成 ${rows}×${cols} = ${rows * cols} 个格子的spritesheet`}>
+            <Button
+              type="primary"
+              icon={<AppstoreOutlined />}
+              onClick={handleGenerateSpritesheet}
+              loading={generatingSpritesheet}
+              disabled={images.length === 0}
+            >
+              生成 ({rows}×{cols})
+            </Button>
           </Tooltip>
         </div>
       </div>

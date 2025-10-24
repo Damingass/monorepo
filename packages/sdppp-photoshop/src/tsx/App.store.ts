@@ -25,6 +25,8 @@ export const MainStore = create<{
         url: string,
         thumbnail_url: string,
         nativePath?: string,
+        width?: number,
+        height?: number,
     }[]
     downloadAndAppendImage: (image: { url: string, source: string, docId?: number, boundary?: any }) => Promise<void>
     deletePreviewImages: (nativePaths: string[]) => Promise<void>
@@ -32,7 +34,7 @@ export const MainStore = create<{
     setPreviewMode: (mode: 'single' | 'multi') => void
     toggleImageSelection: (index: number) => void
     clearImageSelection: () => void
-    addToSequenceFrames: (images: { url: string, thumbnail_url: string, nativePath?: string }[]) => void
+    addToSequenceFrames: (images: { url: string, thumbnail_url: string, nativePath?: string, width?: number, height?: number }[]) => void
     removeSequenceFrame: (index: number) => void
     clearSequenceFrames: () => void
 }>()(persist((set) => ({

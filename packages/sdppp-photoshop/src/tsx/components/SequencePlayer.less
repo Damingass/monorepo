@@ -168,5 +168,34 @@
   &__thumbnail:hover &__thumbnail-delete {
     opacity: 1;
   }
+
+  // Spritesheet生成区域
+  &__spritesheet {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background-color: rgba(0, 0, 0, 0.02);
+    border-radius: 4px;
+    border: 1px dashed rgba(0, 0, 0, 0.1);
+  }
+
+  &__spritesheet-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--sdppp-host-text-color);
+  }
+
+  &__spritesheet-inputs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  &__spritesheet-input-label {
+    font-size: 14px;
+    color: var(--sdppp-host-text-color);
+  }
 }
 

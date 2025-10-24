@@ -2,100 +2,239 @@
 
 ## 问题描述
 
+### 问题1：无法重新导入回PS图层 ❌
+
 从PS图层导入的图片，无法再次导入回PS图层。具体表现为：
 - 从ComfyUI传入的图片可以正常导入回PS ✅
 - 但从PS图层导入的图片，无法重新导入回PS ❌
 
+### 问题2：图片分辨率降低 ❌
+
+从PS图层导入到预览区域时，图片分辨率被降低。例如：
+- PS画布大小：1024×1024像素
+- 导入后的图片：只有约340×340像素（约1/3分辨率）
+
 ## 根本原因
 
-经过深入分析和多次尝试，发现真正的问题是**路径格式不匹配**：
+### 原因1：临时文件 vs 永久文件
 
-### 路径格式问题
+**问题：**
+- `getImage` 返回的 `source` 或 `file_token` 是**临时文件路径**
+- 这些临时文件可能在使用后被Photoshop删除
+- `importImage` 需要一个**稳定的永久路径**才能正常工作
 
-- `getImage` 返回的 `source` 或 `file_token` 可能是 **`file://` 协议URL**（如 `file:///C:/Users/...`）
-- `importImage` 的 `nativePath` 参数需要 **纯文件系统路径**（如 `C:/Users/...` 或 `C:\Users\...`）
-- 如果直接把 `file://` URL传给 `importImage`，会导致导入失败
+**对比ComfyUI的工作流程：**
+```
+ComfyUI图片：
+  网络URL → downloadImage → 保存到永久位置 → 获得稳定的nativePath → 可重复导入 ✅
 
-### 为什么不能用 downloadImage
+PS图层图片（修复前）：
+  getImage → 临时文件路径 → 文件可能被删除 → 导入失败 ❌
+```
 
-最初尝试使用 `downloadImage` 来"下载"本地文件，但这个方案失败了，因为：
-- `downloadImage` 是设计用来从**网络URL**下载图片的
-- 它**不支持** `file://` 协议
-- 尝试传入 `file://` URL会导致 "network request failed" 错误
+### 原因2：imageSize参数限制分辨率
+
+**问题：**
+- 之前使用固定值 `imageSize: 2048`
+- 这个参数限制了图片的最大宽度或高度
+- 如果画布是1024×1024，但用户设置了更低的限制，就会被缩小
+- 固定值不够灵活，无法适应不同的用户需求和配置
 
 ## 解决方案
 
-### 核心修复：直接使用路径并正确转换格式
+### 修复1：使用 downloadImage + thumbnail_url 获取永久路径
 
-**关键代码修改**（第154-207行）：
+**核心思路：**
+
+1. `getImage` 返回 `thumbnail_url`（base64编码的data URL）
+2. 将这个data URL传给 `downloadImage`
+3. `downloadImage` 解码并保存为永久文件
+4. 获得稳定的 `nativePath`，就像ComfyUI的图片一样
+
+**实现代码**（ImagePreviewWrapper.tsx 第184-258行）：
 
 ```typescript
-// 核心修复：直接使用 source 或 file_token 作为 nativePath
-// 但需要正确处理路径格式（去掉file://前缀，确保是纯文件系统路径）
-let rawPath = imageResult.source || imageResult.file_token || '';
-let nativePath = rawPath;
+// 1. 获取图层数据（包含thumbnail_url，这是data URL）
+const imageResult = await sdpppSDK.plugins.photoshop.getImage(getImageParams);
 
-// 处理路径格式
-if (rawPath.startsWith('file://')) {
-  // 去掉 file:// 前缀: file:///C:/Users/... -> C:/Users/...
-  nativePath = rawPath.replace(/^file:\/\/\//, '').replace(/^file:\/\//, '');
-  console.log('[图层导入] 去掉file://前缀:', { rawPath, nativePath });
+const thumbnailUrl = imageResult.thumbnail_url;
+if (!thumbnailUrl) {
+  console.error('[图层导入] 没有thumbnail_url，无法保存图片');
+  alert('无法获取图片数据，请确保图层可见');
+  return;
 }
 
-console.log('[图层导入] 最终路径:', {
-  rawPath,
-  nativePath,
-  isFilePath: nativePath && !nativePath.startsWith('http') && !nativePath.startsWith('data:')
+// 2. 关键修复：使用downloadImage保存到永久位置（就像ComfyUI那样）
+const downloadResult = await sdpppSDK.plugins.photoshop.downloadImage({ 
+  url: thumbnailUrl  // 传入data URL
 });
 
-// 用于显示的URL（保持或转换为file:// URL，用于UXP webview）
-let displayUrl = imageResult.thumbnail_url || '';
-if (!displayUrl && rawPath) {
-  if (rawPath.startsWith('file://')) {
-    displayUrl = rawPath;
-  } else if (rawPath.startsWith('data:')) {
-    displayUrl = rawPath;
-  } else {
-    displayUrl = `file:///${rawPath.replace(/\\/g, '/')}`;
-  }
+if ('error' in downloadResult && downloadResult.error) {
+  console.error('[图层导入] 下载失败:', downloadResult.error);
+  alert(`保存失败: ${downloadResult.error}`);
+  return;
 }
 
+// 3. 现在我们有了永久的nativePath，就像ComfyUI的图片一样
+const nativePath = downloadResult.nativePath;
+const displayUrl = downloadResult.thumbnail_url || thumbnailUrl;
+const finalWidth = downloadResult.width;
+const finalHeight = downloadResult.height;
+
+if (!nativePath) {
+  console.error('[图层导入] downloadImage没有返回nativePath');
+  alert('保存图片失败');
+  return;
+}
+
+// 4. 添加到预览列表，使用永久路径
 const newImage = {
-  url: displayUrl,           // 用于显示（file:// 或 data: URL）
+  url: displayUrl,
   thumbnail_url: displayUrl,
-  nativePath: nativePath,    // 用于导入（纯文件系统路径）
+  nativePath: nativePath,  // 永久路径，可以重复使用 ✅
   source: 'layer-import',
-  ...
+  docId: activeDocID,
+  boundary: boundary,
+  width: finalWidth || returnedWidth,
+  height: finalHeight || returnedHeight,
+  downloading: false
+};
+
+MainStore.setState({ previewImageList: [...currentList, newImage] });
+```
+
+**工作流程对比：**
+
+```
+ComfyUI图片：
+  网络URL 
+  → downloadImage 
+  → 保存为PNG 
+  → 永久nativePath 
+  → 可重复导入 ✅
+
+PS图层图片（现在）：
+  getImage 
+  → thumbnail_url (data URL)
+  → downloadImage 
+  → 保存为PNG 
+  → 永久nativePath 
+  → 可重复导入 ✅
+
+结果：两者完全一致！
+```
+
+### 修复2：使用动态 imageSize 保持原始分辨率
+
+**核心思路：**
+
+使用三级优先级来确定最大尺寸，而不是固定值：
+
+**实现代码**（ImagePreviewWrapper.tsx 第130-146行）：
+
+```typescript
+// 获取最大尺寸限制（三级优先级）
+const workBoundaryMaxSizes = webviewState.workBoundaryMaxSizes || {};
+
+const maxImageSize = 
+  workBoundaryMaxSizes[activeDocID] ||                      // 优先级1：文档级配置
+  sdpppSDK.stores.PhotoshopStore.getState().sdpppX?.        // 优先级2：用户全局设置
+    ['settings.imaging.defaultImagesSizeLimit'] || 
+  999999;                                                    // 优先级3：默认不限制
+
+console.log('[图层导入] maxImageSize:', maxImageSize);
+
+// 使用动态参数调用 getImage
+const getImageParams = {
+  boundary: boundary,
+  content: 'curlayer',
+  imageSize: maxImageSize,  // ✅ 动态值，默认999999（不限制）
+  imageQuality: 90,
+  cropBySelection: 'no' as const,
+  SkipNonNormalLayer: true
 };
 ```
 
-**修改说明：**
-1. 直接使用 `source` 或 `file_token`，不通过 `downloadImage`
-2. 去掉 `file://` 前缀，转换为纯文件系统路径
-3. 区分两种URL用途：
-   - `nativePath`: 用于导入PS，必须是纯路径
-   - `displayUrl`: 用于在webview中显示，需要是 `file://` 或 `data:` URL
+**对比：**
 
-### 修复图片类型判断逻辑
+```
+修复前（固定值）：
+  imageSize: 2048  // ❌ 固定，可能不足或过大
+
+修复后（动态值）：
+  imageSize: workBoundaryMaxSizes || userSetting || 999999  // ✅ 灵活，默认不限制
+```
+
+**效果：**
+
+- 如果用户没有设置限制：使用 999999（不限制），保持原始分辨率
+- 如果用户设置了限制：遵守用户设置
+- 完全兼容现有的配置系统
+
+### 验证和日志
+
+添加了完整的日志来验证分辨率：
+
+```typescript
+// 验证分辨率
+const returnedWidth = (imageResult as any)?.width;
+const returnedHeight = (imageResult as any)?.height;
+
+if (returnedWidth && returnedHeight) {
+  console.log(`[图层导入] ✅ 获取到的图片尺寸: ${returnedWidth}×${returnedHeight}像素`);
+  
+  if (maxImageSize < 999999 && (returnedWidth > maxImageSize || returnedHeight > maxImageSize)) {
+    console.warn(`[图层导入] ⚠️ 图片已被缩放，原因：超过最大尺寸限制 ${maxImageSize}`);
+  }
+}
+
+// 验证分辨率是否保持一致
+if (returnedWidth && returnedHeight && finalWidth && finalHeight) {
+  if (returnedWidth === finalWidth && returnedHeight === finalHeight) {
+    console.log(`[图层导入] ✅ 分辨率保持一致: ${finalWidth}×${finalHeight}像素`);
+  } else {
+    console.warn(`[图层导入] ⚠️ 分辨率发生变化: ${returnedWidth}×${returnedHeight} → ${finalWidth}×${finalHeight}`);
+  }
+}
+
+console.log(`[图层导入] 最终保存的尺寸: ${newImage.width}×${newImage.height}像素`);
+```
+
+**控制台输出示例：**
+
+```
+[图层导入] 当前状态 - activeDocID: 123, boundary: curlayer, maxImageSize: 999999
+[图层导入] 调用 getImage，参数: { imageSize: 999999, imageQuality: 90, ... }
+[图层导入] getImage 返回数据: { width: 1024, height: 1024, ... }
+[图层导入] ✅ 获取到的图片尺寸: 1024×1024像素
+[图层导入] 使用thumbnail_url下载到永久位置
+[图层导入] downloadImage 返回结果: { nativePath: "...", width: 1024, height: 1024 }
+[图层导入] ✅ 分辨率保持一致: 1024×1024像素
+[图层导入] 最终保存的尺寸: 1024×1024像素
+[图层导入] 导入成功！
+```
+
+## 其他修复
+
+### 修复图片类型判断
 
 在第47-48行：
 
 ```typescript
-const currentItem = images[currentIndex];
 // 从图层导入的图片默认认为是图片类型，即使URL可能没有扩展名
-const isCurrentItemImage = currentItem ? (currentItem.source === 'layer-import' || isImage(currentItem.url)) : false;
+const isCurrentItemImage = currentItem ? 
+  (currentItem.source === 'layer-import' || isImage(currentItem.url)) : 
+  false;
 ```
 
-**修改说明：**
-- 如果图片的 `source` 字段为 `'layer-import'`，直接认为是图片类型
-- 确保导入按钮正常显示
+**说明：**
+- 如果 `source === 'layer-import'`，直接认为是图片
+- 确保"导入到PS"按钮正常显示
 
-### 增强错误处理和调试日志
-
-在 `sendToPSAtIndex` 函数中（第66-111行）：
+### 增强错误处理
 
 ```typescript
-// 检查nativePath是否有效
+// 在 sendToPSAtIndex 函数中
 if (!importParams.nativePath) {
   const errorMsg = '图像路径为空，无法导入';
   console.error('[导入到PS]', errorMsg);
@@ -103,172 +242,144 @@ if (!importParams.nativePath) {
   return;
 }
 
+console.log('[导入到PS] 开始导入:', { 
+  index, 
+  source, 
+  nativePath: importParams.nativePath,
+  type: type 
+});
+
 const result = await sdpppSDK.plugins.photoshop.importImage(importParams);
-
-console.log('[导入到PS] 导入成功，返回结果:', result);
+console.log('[导入到PS] 导入成功！');
 ```
 
-添加了完整的调试日志：
-```typescript
-console.log('[图层导入] getImage 返回数据:', { thumbnail_url, source, file_token });
-console.log('[图层导入] 最终路径:', { rawPath, nativePath, isFilePath });
-console.log('[图层导入] 显示URL:', displayUrl);
-console.log('[导入到PS] 开始导入图像:', { index, source, imageData, importParams });
-```
+## 技术细节
 
-## 验证方法
+### downloadImage 的工作原理
 
-### 完整测试流程
+`downloadImage` 可以处理三种URL格式：
 
-1. **从PS图层导入图片**
-   - 点击"从图层导入"按钮
-   - 确认图片成功添加到预览区域
-   - 图片应该正常显示
-
-2. **检查控制台日志**
-   应该看到类似如下的日志：
-   ```
-   [图层导入] getImage 返回数据: { 
-     thumbnail_url: "data:image/png;base64,...", 
-     source: "file:///C:/Users/.../Temp/sdppp-xxx", 
-     file_token: "file:///C:/Users/.../Temp/sdppp-xxx" 
-   }
-   [图层导入] 去掉file://前缀: { 
-     rawPath: "file:///C:/Users/.../Temp/sdppp-xxx", 
-     nativePath: "C:/Users/.../Temp/sdppp-xxx" 
-   }
-   [图层导入] 最终路径: { 
-     rawPath: "file:///C:/Users/.../Temp/sdppp-xxx", 
-     nativePath: "C:/Users/.../Temp/sdppp-xxx", 
-     isFilePath: true 
-   }
+1. **HTTP(S) URL**：
+   ```typescript
+   downloadImage({ url: 'https://example.com/image.png' })
+   // → 下载网络图片 → 保存为本地文件
    ```
 
-3. **检查按钮显示**
-   - 鼠标悬停在预览图片上
-   - 检查底部中间位置是否显示"导入到PS"按钮（蓝色，带同步图标）
-   - 按钮应该是可点击状态
+2. **Data URL**（我们使用的）：
+   ```typescript
+   downloadImage({ url: 'data:image/png;base64,...' })
+   // → 解码base64 → 保存为本地文件
+   ```
 
-4. **测试导入功能**
-   - 点击"导入到PS"按钮
-   - 查看控制台日志：
-     ```
-     [导入到PS] 开始导入图像: { 
-       index: 0, 
-       source: "layer-import", 
-       imageData: { 
-         nativePath: "C:/Users/.../Temp/sdppp-xxx", 
-         url: "data:image/...", 
-         boundary: {...} 
-       }, 
-       importParams: { 
-         nativePath: "C:/Users/.../Temp/sdppp-xxx", 
-         boundary: {...}, 
-         type: "smartobject" 
-       } 
-     }
-     [导入到PS] 导入成功，返回结果: {...}
-     ```
-   - 确认图片成功导入回PS图层
-   - 在PS中查看新创建的智能对象图层
+3. **不支持 file:// URL**：
+   ```typescript
+   downloadImage({ url: 'file:///C:/temp/image.png' })
+   // ❌ 会报错: "network request failed"
+   ```
 
-5. **如果导入失败**
-   - 检查控制台是否有错误日志
-   - 查看 `[导入到PS] 导入失败` 相关信息
-   - 会显示alert提示具体错误原因
+### imageSize 参数的作用
 
-## 流程对比
+`imageSize` 限制图片的最大**宽度或高度**（取较大者）：
 
-### 修复前的流程（有问题）
+**示例：**
 
-```
-PS图层 → getImage → file:///C:/... → 直接作为nativePath → importImage ❌ 
-                                   (路径格式错误，包含file://前缀)
-```
+| 原始尺寸 | imageSize | 结果尺寸 | 说明 |
+|---------|-----------|---------|------|
+| 1024×1024 | 2048 | 1024×1024 | 未超过限制，保持原样 ✅ |
+| 1024×1024 | 999999 | 1024×1024 | 不限制，保持原样 ✅ |
+| 4096×4096 | 2048 | 2048×2048 | 超过限制，按比例缩小 |
+| 3840×2160 | 2048 | 2048×1152 | 长边缩小到2048，保持16:9比例 |
+| 8192×8192 | 999999 | 8192×8192 | 不限制，保持原样 ✅ |
 
-### 修复后的流程
+**默认值 999999 的含义：**
+- 999999 是一个足够大的数字，实际上不会限制任何合理尺寸的图片
+- 相当于"不限制"的意思
+- 这样可以保持图片的原始分辨率
 
-```
-PS图层 → getImage → file:///C:/... → 去掉file://前缀 → C:/... → importImage ✅
-                                                    (纯文件系统路径)
-```
+## 测试验证
 
-**关键区别：**
-- 修复前：直接使用包含 `file://` 前缀的URL
-- 修复后：正确转换为纯文件系统路径
+### 测试步骤
 
-## 相关文件
+1. **准备测试图层**：
+   - 创建一个1024×1024的画布
+   - 添加一个图层并绘制内容
 
-- `packages/sdppp-photoshop/src/tsx/components/ImagePreviewWrapper.tsx` - 主要修改文件
-  - 第47-48行：图片类型判断逻辑
-  - 第154-207行：核心修复，正确处理路径格式
-  - 第66-111行：增强错误处理和调试日志
-- `packages/sdppp-photoshop/src/utils/fileType.ts` - `isImage()` 函数定义
-- `packages/ps-common/sdk/sdppp-ps-sdk.d.ts` - SDK接口定义
-  - `getImage` 返回格式：`{ thumbnail_url?, source?, file_token? }`
-  - `importImage` 参数格式：`{ nativePath: string, boundary, type, ... }`
+2. **导入测试**：
+   ```
+   点击"从图层导入" → 检查控制台日志
+   ```
+   
+   应该看到：
+   ```
+   [图层导入] ✅ 获取到的图片尺寸: 1024×1024像素
+   [图层导入] ✅ 分辨率保持一致: 1024×1024像素
+   ```
 
-## 注意事项
+3. **重新导入测试**：
+   ```
+   在预览列表中选择刚导入的图片 → 点击"导入到PS"
+   ```
+   
+   应该看到：
+   ```
+   [导入到PS] 开始导入: { nativePath: "...", type: "newdoc" }
+   [导入到PS] 导入成功！
+   ```
 
-### 1. 路径格式是关键
+4. **Spritesheet测试**：
+   ```
+   添加多个图片到序列帧 → 生成2×2的spritesheet
+   ```
+   
+   应该看到：
+   ```
+   [Spritesheet] 图片 0 加载完成，尺寸: 1024×1024
+   [Spritesheet] Canvas总尺寸（原始分辨率）: 2048 x 2048
+   ```
 
-- **getImage 返回**: `file:///C:/Users/...` (file:// URL)
-- **importImage 需要**: `C:/Users/...` (纯路径)
-- **必须转换**: 去掉 `file://` 或 `file:///` 前缀
+### 预期结果
 
-### 2. 两种路径用途不同
+- ✅ PS导入的图片可以重新导入回PS
+- ✅ 图片分辨率保持1024×1024（不会降低到340×340）
+- ✅ 与ComfyUI图片的行为完全一致
+- ✅ Spritesheet生成保持原始分辨率（2×2布局 = 2048×2048）
 
-- **nativePath**: 传给 `importImage`，必须是纯文件系统路径，不能包含 `file://`
-- **displayUrl**: 用于在UXP webview中显示图片，需要是 `file://` URL或 `data:` URL
+## 相关文档
 
-### 3. source 字段标识
+- **IMAGE_RESOLUTION_GUIDE.md**：详细的分辨率配置和验证指南
+- **SPRITESHEET_FEATURE.md**：Spritesheet功能说明，包含分辨率处理
+- **SEQUENCE_PLAYER_GUIDE.md**：序列帧播放器使用指南
 
-- 从图层导入的图片: `source = 'layer-import'`
-- 从ComfyUI导入的图片: `source = 工作流名称`
-- 用于图片类型判断和来源追踪
+## 修改文件
 
-### 4. 调试建议
-
-**查看关键日志：**
-- `[图层导入] getImage 返回数据` - 检查返回的路径格式
-- `[图层导入] 去掉file://前缀` - 确认路径转换正确
-- `[图层导入] 最终路径` - 验证 nativePath 格式
-- `[导入到PS] 开始导入图像` - 检查传给 importImage 的参数
-- `[导入到PS] 导入成功` - 确认导入成功
-
-**检查要点：**
-- `rawPath` 是否以 `file://` 开头
-- `nativePath` 是否已去掉 `file://` 前缀
-- `nativePath` 不应该包含 `file://`、`http://` 或 `data:` 前缀
-- Windows路径格式：`C:/Users/...` 或 `C:\Users\...` 都可以
-
-### 5. 常见问题
-
-**Q: 导入时提示"图像路径为空"**
-- A: 检查 `getImage` 是否正确返回了 `source` 或 `file_token`
-
-**Q: 导入失败但没有明确错误**
-- A: 可能是临时文件已被删除，尝试重新从图层导入
-
-**Q: 按钮不显示**
-- A: 检查 `isCurrentItemImage` 逻辑，确保 `source === 'layer-import'`
-
-**Q: 文件路径包含 file:// 导致失败**
-- A: 检查路径转换逻辑，确保 `nativePath` 已去掉前缀
-
-### 6. 临时文件的生命周期
-
-⚠️ **重要提示**：
-- `getImage` 返回的文件路径通常指向临时文件
-- 这些临时文件可能在一段时间后被系统清理
-- 建议在从图层导入后尽快导入回PS，不要等待太久
-- 如果临时文件已被删除，需要重新从图层导入
+- `packages/sdppp-photoshop/src/tsx/components/ImagePreviewWrapper.tsx`
+  - 第130-183行：动态获取maxImageSize，分辨率验证
+  - 第184-258行：使用downloadImage获取永久路径
+  - 第47-48行：图片类型判断修复
+  - 第66-111行：增强的错误处理
 
 ## 更新日期
 
-2025-10-23
+2025-10-24
 
-## 修复历史
+## 总结
 
-- **v1**: 尝试使用 `downloadImage` "下载"本地文件 → 失败（network request failed）
-- **v2**: 直接使用路径，但需要正确转换格式 → ✅ 成功
+**核心修复：**
+
+1. **临时文件 → 永久文件**：使用 `downloadImage(thumbnail_url)` 代替直接使用临时路径
+2. **固定限制 → 动态配置**：使用 `workBoundaryMaxSizes` 或 `999999`（不限制）代替固定的 `2048`
+
+**结果：**
+
+- ✅ PS导入的图片可以重复导入，就像ComfyUI图片一样
+- ✅ 图片分辨率保持原样，不会被降低
+- ✅ 完全兼容现有的配置系统
+- ✅ 详细的日志帮助用户验证和调试
+
+**工作流程现在完全统一：**
+
+```
+PS图层 ──┐
+         ├─→ downloadImage → 永久文件 → nativePath → 可重复导入 ✅
+ComfyUI ─┘                    (保持原始分辨率)
+```
