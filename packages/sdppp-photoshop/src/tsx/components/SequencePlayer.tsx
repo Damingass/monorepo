@@ -116,23 +116,51 @@ export default function SequencePlayer({ images, onRemoveImage, onClearAll, onSp
     setGeneratingSpritesheet(true);
 
     try {
-      // 加载所有图片（使用原图URL而不是缩略图，保持原始分辨率）
+      // 加载所有图片
       const loadedImages = await Promise.all(
-        images.slice(0, totalCells).map((img, index) => {
+        images.slice(0, totalCells).map(async (img, index) => {
           return new Promise<HTMLImageElement>((resolve, reject) => {
             const image = new window.Image();
-            image.crossOrigin = 'anonymous';
+            
+            // 优先使用 thumbnail_url，其次 url
+            let imageUrl = img.thumbnail_url || img.url;
+            
+            if (!imageUrl) {
+              reject(new Error(`图片 ${index} 没有有效的URL`));
+              return;
+            }
+            
+            console.log(`[Spritesheet] 图片 ${index} URL类型:`, {
+              url: img.url?.substring(0, 50),
+              thumbnail_url: img.thumbnail_url?.substring(0, 50),
+              isFile: imageUrl.startsWith('file://'),
+              isHttp: imageUrl.startsWith('http'),
+              isData: imageUrl.startsWith('data:')
+            });
+            
+            // 不设置 crossOrigin，让浏览器自行处理
+            // 这样可以避免 CORS 导致 canvas 污染
+            
             image.onload = () => {
               console.log(`[Spritesheet] 图片 ${index} 加载完成，尺寸: ${image.width}×${image.height}`);
               resolve(image);
             };
+            
             image.onerror = (e) => {
-              console.error(`[Spritesheet] 图片 ${index} 加载失败:`, e);
-              reject(e);
+              console.error(`[Spritesheet] 图片 ${index} 加载失败:`, {
+                url: imageUrl.substring(0, 100),
+                error: e
+              });
+              // 尝试使用另一个URL
+              if (img.thumbnail_url && img.url && imageUrl === img.thumbnail_url) {
+                console.log(`[Spritesheet] 尝试使用 url 字段重新加载图片 ${index}`);
+                image.src = img.url;
+              } else {
+                reject(new Error(`图片 ${index} 加载失败`));
+              }
             };
-            // 关键修改：使用原图URL（url）而不是缩略图（thumbnail_url）
-            // 这样可以保持原始分辨率
-            image.src = img.url;
+            
+            image.src = imageUrl;
           });
         })
       );
@@ -179,6 +207,11 @@ export default function SequencePlayer({ images, onRemoveImage, onClearAll, onSp
 
       // 转换为data URL
       const dataUrl = canvas.toDataURL('image/png');
+      
+      if (!dataUrl || !dataUrl.startsWith('data:')) {
+        throw new Error('Canvas转换为data URL失败');
+      }
+      
       const fileSizeKB = (dataUrl.length / 1024).toFixed(2);
       console.log('[Spritesheet] 生成完成！');
       console.log('[Spritesheet] - 最终尺寸:', canvas.width, 'x', canvas.height, '像素');
@@ -186,10 +219,11 @@ export default function SequencePlayer({ images, onRemoveImage, onClearAll, onSp
       console.log('[Spritesheet] - 单元格尺寸:', cellWidth, 'x', cellHeight);
       console.log('[Spritesheet] - 布局:', rows, '行 x', cols, '列 =', rows * cols, '个格子');
 
-      message.success(`Spritesheet生成成功！尺寸: ${canvas.width}×${canvas.height}像素（保持原始分辨率）`);
+      message.success(`Spritesheet生成成功！尺寸: ${canvas.width}×${canvas.height}像素`);
 
       // 调用回调函数
       if (onSpritesheetGenerated) {
+        console.log('[Spritesheet] 调用回调函数，dataUrl长度:', dataUrl.length);
         onSpritesheetGenerated(dataUrl);
       }
 

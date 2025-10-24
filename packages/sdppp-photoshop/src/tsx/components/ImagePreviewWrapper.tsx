@@ -131,7 +131,6 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
     await sendToPSAtIndex(currentIndex, { shiftKey: !!event?.shiftKey });
   };
 
-  // 从图层导入图片 - 使用 file_token + getImageBase64 获取完整分辨率
   const handleImportFromLayer = async () => {
     try {
       setLoadingFromLayer(true);
@@ -145,12 +144,6 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
                           sdpppSDK.stores.PhotoshopStore.getState().sdpppX?.['settings.imaging.defaultImagesSizeLimit'] || 
                           4096;
       
-      console.log('[handleImportFromLayer] 开始获取图层数据', {
-        boundary,
-        maxImageSize
-      });
-      
-      // 第1步：调用 getImage 获取 file_token（完整分辨率令牌）
       const imageResult = await sdpppSDK.plugins.photoshop.getImage({
         boundary: boundary,
         content: 'curlayer',
@@ -161,7 +154,7 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
       });
 
       if (imageResult.error) {
-        console.error('[handleImportFromLayer] getImage 错误:', imageResult.error);
+        console.error('[handleImportFromLayer] getImage error:', imageResult.error);
         alert(`获取图层失败: ${imageResult.error}`);
         setLoadingFromLayer(false);
         return;
@@ -169,82 +162,48 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
       
       const file_token = imageResult.file_token;
       const thumbnailUrl = imageResult.thumbnail_url;
-      
-      console.log('[handleImportFromLayer] getImage 返回结果:', {
-        hasFileToken: !!file_token,
-        hasThumbnailUrl: !!thumbnailUrl,
-        file_token: typeof file_token === 'string' ? file_token.substring(0, 100) : file_token
-      });
-      
-      // 第2步：使用 file_token 获取完整分辨率 base64（对齐 ComfyUI 流程）
       let fullResolutionDataUrl = thumbnailUrl || '';
       
-      // 检查 file_token 是否有效（不应该是包含 boundary 的 JSON 字符串）
       if (file_token && typeof file_token === 'string' && !file_token.includes('boundary')) {
         try {
-          console.log('[handleImportFromLayer] 使用 file_token 获取完整分辨率 base64...');
-          
           const base64Result = await sdpppSDK.plugins.photoshop.getImageBase64({ 
             token: file_token 
           });
           
           if (base64Result.error) {
-            console.warn('[handleImportFromLayer] getImageBase64 错误，回退到 thumbnail_url:', base64Result.error);
+            console.warn('[handleImportFromLayer] getImageBase64 error, fallback to thumbnail_url:', base64Result.error);
           } else if (base64Result.base64) {
             let base64String = base64Result.base64;
             const mimeType = base64Result.mimeType || 'image/png';
             
-            // 检查 base64 字符串是否已经包含 data URL 前缀
             if (base64String.startsWith('data:')) {
-              // 已经是完整的 data URL，直接使用
               fullResolutionDataUrl = base64String;
-              console.log('[handleImportFromLayer] base64已包含data URL前缀，直接使用', {
-                prefix: base64String.substring(0, 50),
-                base64Length: base64String.length
-              });
             } else {
-              // 需要移除可能存在的其他前缀并重新构造 data URL
-              // 去除所有可能的 data:image/* 前缀（参考Java代码）
               base64String = base64String
-                .replace(/^data:image\/\w+;base64,/, '')  // 去除任何 data:image/*;base64, 前缀
-                .replace(/\s/g, '+');  // 将空格替换回 +（Ajax传输可能导致的问题）
+                .replace(/^data:image\/\w+;base64,/, '')
+                .replace(/\s/g, '+');
               
-              // 构造正确的 data URL
               fullResolutionDataUrl = `data:${mimeType};base64,${base64String}`;
-              console.log('[handleImportFromLayer] 清理base64并添加前缀', {
-                mimeType,
-                originalLength: base64Result.base64.length,
-                cleanedLength: base64String.length,
-                preview: base64String.substring(0, 50)
-              });
             }
           }
         } catch (error) {
-          console.warn('[handleImportFromLayer] getImageBase64 异常，回退到 thumbnail_url:', error);
+          console.warn('[handleImportFromLayer] getImageBase64 exception, fallback to thumbnail_url:', error);
         }
-      } else {
-        console.warn('[handleImportFromLayer] file_token 无效，使用 thumbnail_url（可能是低分辨率）');
       }
       
       if (!fullResolutionDataUrl) {
-        console.error('[handleImportFromLayer] 既没有 file_token 也没有 thumbnail_url');
+        console.error('[handleImportFromLayer] No available image data');
         alert('获取图层数据失败');
         setLoadingFromLayer(false);
         return;
       }
-      
-      // 第3步：使用 downloadImage 保存完整分辨率数据到本地永久文件（对齐 ComfyUI 流程）
-      console.log('[handleImportFromLayer] 调用 downloadImage 保存到本地...', {
-        urlType: fullResolutionDataUrl.startsWith('data:') ? 'data URL' : 'file URL',
-        urlLength: fullResolutionDataUrl.length
-      });
       
       const downloadResult = await sdpppSDK.plugins.photoshop.downloadImage({ 
         url: fullResolutionDataUrl 
       });
       
       if ('error' in downloadResult && downloadResult.error) {
-        console.error('[handleImportFromLayer] downloadImage 错误:', downloadResult.error);
+        console.error('[handleImportFromLayer] downloadImage error:', downloadResult.error);
         alert(`保存图片失败: ${downloadResult.error}`);
         setLoadingFromLayer(false);
         return;
@@ -253,27 +212,18 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
       const nativePath = downloadResult.nativePath;
       let displayUrl = downloadResult.thumbnail_url;
       
-      // 如果 downloadImage 没有返回 thumbnail_url，从 nativePath 生成 file:// URL
       if (!displayUrl && nativePath) {
         const normalizedPath = nativePath.replace(/\\/g, '/');
         displayUrl = `file:///${normalizedPath}`;
       }
       
       if (!nativePath || !displayUrl) {
-        console.error('[handleImportFromLayer] 缺少必要的路径信息');
+        console.error('[handleImportFromLayer] Missing required path info');
         alert('保存图片失败');
         setLoadingFromLayer(false);
         return;
       }
       
-      console.log('[handleImportFromLayer] downloadImage 成功返回:', {
-        nativePath,
-        displayUrl: displayUrl.substring(0, 100),
-        width: downloadResult.width,
-        height: downloadResult.height
-      });
-      
-      // 第4步：保存到 store
       const newImage = {
         url: displayUrl,
         thumbnail_url: displayUrl,
@@ -290,15 +240,8 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
         previewImageList: [...currentList, newImage]
       });
       
-      console.log('[handleImportFromLayer] ✅ 成功导入图层（完整分辨率）', {
-        nativePath,
-        width: newImage.width,
-        height: newImage.height,
-        resolution: `${newImage.width}×${newImage.height}`
-      });
-      
     } catch (error) {
-      console.error('[handleImportFromLayer] 异常:', error);
+      console.error('[handleImportFromLayer] exception:', error);
       alert(`导入图层失败: ${(error as Error)?.message || error}`);
     } finally {
       setLoadingFromLayer(false);
@@ -480,48 +423,55 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
     clearImageSelection();
   };
 
-  // 处理spritesheet生成
   const handleSpritesheetGenerated = async (dataUrl: string) => {
-    console.log('[Spritesheet] 开始保存生成的spritesheet');
-    
     try {
-      // 使用downloadImage保存data URL到永久位置
-      const downloadResult = await sdpppSDK.plugins.photoshop.downloadImage({ url: dataUrl });
+      if (!dataUrl || typeof dataUrl !== 'string') {
+        console.error('[Spritesheet] Invalid dataUrl:', typeof dataUrl, dataUrl);
+        alert('生成失败: 无效的图片数据');
+        return;
+      }
+
+      if (!dataUrl.startsWith('data:')) {
+        console.error('[Spritesheet] dataUrl does not start with "data:":', dataUrl.substring(0, 50));
+        alert('生成失败: 图片数据格式错误');
+        return;
+      }
+
+      let processedDataUrl = dataUrl;
+      const parts = dataUrl.split(',');
       
-      console.log('[Spritesheet] downloadImage 返回结果:', downloadResult);
+      if (parts.length === 2) {
+        const header = parts[0];
+        let base64Data = parts[1];
+        base64Data = base64Data.replace(/\s/g, '+');
+        processedDataUrl = `${header},${base64Data}`;
+      }
+      
+      const downloadResult = await sdpppSDK.plugins.photoshop.downloadImage({ 
+        url: processedDataUrl 
+      });
 
       if ('error' in downloadResult && downloadResult.error) {
-        console.error('[Spritesheet] 保存失败:', downloadResult.error);
+        console.error('[Spritesheet] Save failed:', downloadResult.error);
         alert(`保存失败: ${downloadResult.error}`);
         return;
       }
 
       const nativePath = downloadResult.nativePath;
-      const displayUrl = downloadResult.thumbnail_url || dataUrl;
-
-      console.log('[Spritesheet] 获得永久路径:', {
-        nativePath,
-        displayUrl,
-        width: downloadResult.width,
-        height: downloadResult.height
-      });
-
       if (!nativePath) {
-        console.error('[Spritesheet] downloadImage没有返回nativePath');
+        console.error('[Spritesheet] No nativePath returned');
         alert('保存spritesheet失败');
         return;
       }
 
-      // 获取当前状态
       const currentList = MainStore.getState().previewImageList;
       const activeDocID = sdpppSDK.stores.PhotoshopStore.getState().activeDocumentID;
       const webviewState = sdpppSDK.stores.WebviewStore.getState() as any;
       const boundary = webviewState.workBoundaries?.[activeDocID] || 'canvas';
       
-      // 添加到预览列表
       const newImage = {
-        url: displayUrl,
-        thumbnail_url: displayUrl,
+        url: downloadResult.thumbnail_url || processedDataUrl,
+        thumbnail_url: downloadResult.thumbnail_url || processedDataUrl,
         nativePath: nativePath,
         source: 'spritesheet',
         docId: activeDocID,
@@ -531,17 +481,13 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
         downloading: false
       };
       
-      console.log('[Spritesheet] 添加到预览列表:', newImage);
-      
       MainStore.setState({
         previewImageList: [...currentList, newImage]
       });
-
-      console.log('[Spritesheet] Spritesheet已成功添加到预览列表');
       
     } catch (error) {
-      console.error('[Spritesheet] 保存失败，异常详情:', error);
-      alert(`保存异常: ${(error as Error)?.message}`);
+      console.error('[Spritesheet] Exception:', error);
+      alert(`保存异常: ${(error as Error)?.message || String(error)}`);
     }
   };
 
