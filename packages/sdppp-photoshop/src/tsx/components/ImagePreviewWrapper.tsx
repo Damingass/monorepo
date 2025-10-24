@@ -163,58 +163,60 @@ export default function ImagePreviewWrapper({ children }: ImagePreviewWrapperPro
         file_token: imageResult.file_token
       });
 
-      // 核心修复：直接使用 source 或 file_token 作为 nativePath
-      // 但需要正确处理路径格式（去掉file://前缀，确保是纯文件系统路径）
-      let rawPath = imageResult.source || imageResult.file_token || '';
-      let nativePath = rawPath;
+      // 关键发现：getImage返回的source/file_token是临时文件，可能会被删除
+      // ComfyUI使用downloadImage把网络图片下载到永久位置
+      // 我们也需要这样做：使用thumbnail_url（data URL）通过downloadImage获取永久路径
       
-      // 处理路径格式
-      if (rawPath.startsWith('file://')) {
-        // 去掉 file:// 前缀: file:///C:/Users/... -> C:/Users/...
-        nativePath = rawPath.replace(/^file:\/\/\//, '').replace(/^file:\/\//, '');
-        console.log('[图层导入] 去掉file://前缀:', { rawPath, nativePath });
-      }
+      const thumbnailUrl = imageResult.thumbnail_url;
       
-      // 确保使用正确的路径分隔符（Windows）
-      // 但不要改变路径，因为SDK可能接受两种格式
-      
-      console.log('[图层导入] 最终路径:', {
-        rawPath,
-        nativePath,
-        isFilePath: nativePath && !nativePath.startsWith('http') && !nativePath.startsWith('data:')
-      });
-
-      if (!nativePath) {
-        console.error('[图层导入] 无法获取有效路径');
-        alert('无法获取图像路径');
+      if (!thumbnailUrl) {
+        console.error('[图层导入] 没有thumbnail_url，无法保存图片');
+        alert('无法获取图片数据，请确保图层可见');
         setLoadingFromLayer(false);
         return;
       }
 
-      // 用于显示的URL
-      let displayUrl = imageResult.thumbnail_url || '';
-      if (!displayUrl && rawPath) {
-        // 如果没有thumbnail_url，为显示创建file:// URL
-        if (rawPath.startsWith('file://')) {
-          displayUrl = rawPath;
-        } else if (rawPath.startsWith('data:')) {
-          displayUrl = rawPath;
-        } else {
-          displayUrl = `file:///${rawPath.replace(/\\/g, '/')}`;
-        }
+      console.log('[图层导入] 使用thumbnail_url下载到永久位置');
+      
+      // 关键修复：使用downloadImage保存到永久位置（就像ComfyUI那样）
+      const downloadResult = await sdpppSDK.plugins.photoshop.downloadImage({ url: thumbnailUrl });
+      
+      console.log('[图层导入] downloadImage 返回结果:', downloadResult);
+
+      if ('error' in downloadResult && downloadResult.error) {
+        console.error('[图层导入] 下载失败:', downloadResult.error);
+        alert(`保存失败: ${downloadResult.error}`);
+        setLoadingFromLayer(false);
+        return;
       }
 
-      console.log('[图层导入] 显示URL:', displayUrl);
+      // 现在我们有了永久的nativePath，就像ComfyUI的图片一样
+      const nativePath = downloadResult.nativePath;
+      const displayUrl = downloadResult.thumbnail_url || thumbnailUrl;
+
+      console.log('[图层导入] 获得永久路径:', {
+        nativePath,
+        displayUrl,
+        width: downloadResult.width,
+        height: downloadResult.height
+      });
+
+      if (!nativePath) {
+        console.error('[图层导入] downloadImage没有返回nativePath');
+        alert('保存图片失败');
+        setLoadingFromLayer(false);
+        return;
+      }
       
       const newImage = {
         url: displayUrl,
         thumbnail_url: displayUrl,
-        nativePath: nativePath,  // 关键：使用纯路径，不是file:// URL
+        nativePath: nativePath,  // 永久路径，可以重复使用
         source: 'layer-import',
         docId: activeDocID,
         boundary: boundary,
-        width: (imageResult as any)?.width,
-        height: (imageResult as any)?.height,
+        width: downloadResult.width || (imageResult as any)?.width,
+        height: downloadResult.height || (imageResult as any)?.height,
         downloading: false
       };
       
